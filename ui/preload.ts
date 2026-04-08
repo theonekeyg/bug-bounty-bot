@@ -1,0 +1,44 @@
+/**
+ * Electron preload — exposes a type-safe IPC bridge to the renderer.
+ * contextIsolation: true means this is the only way renderer can talk to main.
+ */
+
+import { contextBridge, ipcRenderer } from "electron";
+import type { TrackState, PendingInstall } from "../src/types/index.js";
+
+export interface BugBountyAPI {
+  startResearch: (briefPath: string, boxerUrl: string) => Promise<{ started: boolean }>;
+  writeBrief: (content: string) => Promise<string>;
+  readFile: (path: string) => Promise<string | null>;
+  pickFile: (filters?: Electron.FileFilter[]) => Promise<string | null>;
+  getProgress: () => Promise<TrackState[]>;
+  getPendingInstalls: () => Promise<PendingInstall[]>;
+  resolveInstall: (
+    trackId: string,
+    approved: boolean,
+    install: PendingInstall,
+  ) => Promise<{ approved: boolean; output?: string; exitCode?: number; error?: string }>;
+  onResearchError: (cb: (err: string) => void) => void;
+}
+
+contextBridge.exposeInMainWorld("bugBounty", {
+  startResearch: (briefPath: string, boxerUrl: string) =>
+    ipcRenderer.invoke("start-research", briefPath, boxerUrl),
+
+  writeBrief: (content: string) => ipcRenderer.invoke("write-brief", content),
+
+  readFile: (path: string) => ipcRenderer.invoke("read-file", path),
+
+  pickFile: (filters?: Electron.FileFilter[]) =>
+    ipcRenderer.invoke("pick-file", filters),
+
+  getProgress: () => ipcRenderer.invoke("get-progress"),
+
+  getPendingInstalls: () => ipcRenderer.invoke("get-pending-installs"),
+
+  resolveInstall: (trackId: string, approved: boolean, install: PendingInstall) =>
+    ipcRenderer.invoke("resolve-install", trackId, approved, install),
+
+  onResearchError: (cb: (err: string) => void) =>
+    ipcRenderer.on("research-error", (_event, err: string) => cb(err)),
+} satisfies BugBountyAPI);

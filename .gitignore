@@ -1,0 +1,9 @@
+node_modules/
+state/
+output/
+*.env
+.env.*
+bun.lockb
+ui/main.js
+ui/preload.js
+ui/renderer/app.js

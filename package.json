@@ -1,0 +1,33 @@
+{
+  "name": "bug-bounty",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "ui:compile": "bun build ui/main.ts --outfile ui/main.js --target node --external electron --external @anthropic-ai/claude-agent-sdk && bun build ui/preload.ts --outfile ui/preload.js --target node --external electron && bun build ui/renderer/app.ts --outfile ui/renderer/app.js --target browser",
+    "ui": "bun run ui:compile && node_modules/.bin/electron --no-sandbox ui/main.js",
+    "dev": "concurrently \"bun start\" \"bun ui\"",
+    "lint": "eslint src ui",
+    "format": "prettier --write .",
+    "test": "bun test",
+    "test:ui": "bun run ui:compile && playwright test --config playwright.config.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.renderer.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.77",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/bun": "latest",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "bun-types": "latest",
+    "concurrently": "^9.0.0",
+    "electron": "^35.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.8.0"
+  }
+}
