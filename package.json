@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
-    "ui:compile": "bun build ui/main.ts --outfile ui/main.js --target node --external electron --external @anthropic-ai/claude-agent-sdk && bun build ui/preload.ts --outfile ui/preload.js --target node --external electron && bun build ui/renderer/app.ts --outfile ui/renderer/app.js --target browser",
+    "ui:compile": "bun build ui/main.ts --outfile ui/main.js --target node --external electron --external @anthropic-ai/claude-agent-sdk && bun build ui/preload.ts --outfile ui/preload.js --target node --external electron --format=cjs && bun build ui/renderer/app.ts --outfile ui/renderer/app.js --target browser",
     "ui": "bun run ui:compile && node_modules/.bin/electron --no-sandbox ui/main.js",
     "dev": "concurrently \"bun start\" \"bun ui\"",
     "lint": "eslint src ui",

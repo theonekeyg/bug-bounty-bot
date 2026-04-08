@@ -79,4 +79,39 @@ test.describe("Bug Bounty Agent UI", () => {
   test("takes screenshot for visual inspection", async () => {
     await page.screenshot({ path: "tests/screenshots/startup.png", fullPage: true });
   });
+
+  test("Start Research with empty fields shows validation feedback", async () => {
+    await page.locator("#start-btn").click();
+    // Button should NOT disable/change state — validation should block
+    await expect(page.locator("#start-btn")).toBeEnabled();
+    await expect(page.locator("#welcome")).toBeVisible(); // still on welcome screen
+  });
+
+  test("Start Research with filled fields gives user feedback within 3s", async () => {
+    await page.locator("#target").fill("Test Target");
+    await page.locator("#goal").fill("Find auth bypass");
+    await page.locator("#scope").fill("In scope: everything");
+
+    // Listen for any dialog (alert) that might appear
+    const dialogMessages: string[] = [];
+    page.on("dialog", async (dialog) => {
+      dialogMessages.push(dialog.message());
+      await dialog.dismiss();
+    });
+
+    await page.locator("#start-btn").click();
+
+    // Wait up to 3s for SOME user-visible feedback:
+    // either button state change, error dialog, or status update
+    await page.waitForTimeout(3000);
+
+    const btnText = await page.locator("#start-btn").textContent();
+    const btnDisabled = await page.locator("#start-btn").isDisabled();
+
+    await page.screenshot({ path: "tests/screenshots/after-start-click.png", fullPage: true });
+
+    // Must have SOME feedback — button changed or dialog shown
+    const hasFeedback = btnText !== "Start Research" || btnDisabled || dialogMessages.length > 0;
+    expect(hasFeedback, `No feedback shown. btn="${btnText}" disabled=${btnDisabled} dialogs=${JSON.stringify(dialogMessages)}`).toBe(true);
+  });
 });
