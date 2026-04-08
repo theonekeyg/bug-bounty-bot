@@ -10,6 +10,7 @@ import { runAgent } from "../sdk/client.js";
 import { readAllTrackStates, paths } from "../loop/state.js";
 import { BoxerClient } from "../sandbox/boxer.js";
 import type { TrackState } from "../types/state.js";
+import type { RunModelConfig } from "../types/provider.js";
 
 const SYSTEM_PROMPT = `You are the Reporter in an autonomous security research system.
 
@@ -32,12 +33,13 @@ Write output/report.md using the Write tool. Structure:
 
 Be precise. No filler. End response with: REPORT_COMPLETE`;
 
-export async function runReporter(boxer: BoxerClient): Promise<void> {
+export async function runReporter(boxer: BoxerClient, modelConfig: RunModelConfig): Promise<void> {
   void boxer; // reserved for future tool use
   await mkdir(paths.outputDir(), { recursive: true });
   const states = await readAllTrackStates();
 
   const result = await runAgent({
+    modelConfig,
     systemPrompt: SYSTEM_PROMPT,
     prompt: await buildPrompt(states),
     cwd: process.cwd(),

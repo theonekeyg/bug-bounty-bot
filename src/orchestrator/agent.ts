@@ -16,6 +16,7 @@ import { BoxerClient } from "../sandbox/boxer.js";
 import { parseBrief } from "../types/index.js";
 import { runRalphLoop, type LoopIteration } from "../loop/runner.js";
 import { runResearcher } from "../researcher/agent.js";
+import type { RunModelConfig } from "../types/provider.js";
 import { runReporter } from "../reporter/agent.js";
 
 const SYSTEM_PROMPT = `You are the Orchestrator in an autonomous security research system.
@@ -32,7 +33,11 @@ Your job:
 Use the Write tool for all file creation.
 When all files are written, end your response with: ORCHESTRATION_DONE`;
 
-export async function runOrchestrator(briefPath: string, boxer: BoxerClient): Promise<void> {
+export async function runOrchestrator(
+  briefPath: string,
+  boxer: BoxerClient,
+  modelConfig: RunModelConfig,
+): Promise<void> {
   await initStateDir();
   const raw = await readFile(briefPath, "utf-8");
   const brief = parseBrief(raw);
@@ -43,13 +48,14 @@ export async function runOrchestrator(briefPath: string, boxer: BoxerClient): Pr
       if (tracksCreated) {
         const states = await readAllTrackStates();
         if (allTracksTerminal(states)) {
-          await runReporter(boxer);
+          await runReporter(boxer, modelConfig);
           return { done: true, reason: "all tracks terminal, report generated" };
         }
         return { done: false };
       }
 
       const result = await runAgent({
+        modelConfig,
         systemPrompt: SYSTEM_PROMPT,
         prompt: buildPrompt(brief, raw),
         cwd: process.cwd(),
@@ -60,7 +66,7 @@ export async function runOrchestrator(briefPath: string, boxer: BoxerClient): Pr
         const states = await readAllTrackStates();
         // Spawn researchers concurrently — each runs its own loop
         for (const state of states) {
-          runResearcher(state.trackId, brief, boxer).catch((err: unknown) =>
+          runResearcher(state.trackId, brief, boxer, modelConfig).catch((err: unknown) =>
             console.error(`Researcher ${state.trackId} crashed:`, err),
           );
         }

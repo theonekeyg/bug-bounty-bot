@@ -62,7 +62,7 @@
       .field { margin-bottom: 12px; }
       label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 
-      input[type="text"], textarea {
+      input[type="text"], textarea, select {
         width: 100%;
         background: var(--surface);
         border: 1px solid var(--border);
@@ -170,6 +170,17 @@
           <div class="field">
             <label>Context</label>
             <textarea id="context" rows="2" placeholder="Node.js backend, JWT auth, PostgreSQL..."></textarea>
+          </div>
+                    <div class="field">
+            <label>Model provider</label>
+            <select id="model-provider">
+              <option value="claude_code">Claude Code</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Model</label>
+            <input type="text" id="model-name" value="sonnet" placeholder="e.g. sonnet, gpt-5" />
           </div>
           <div class="field">
             <label>Boxer URL</label>

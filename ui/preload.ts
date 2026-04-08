@@ -4,10 +4,15 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
-import type { TrackState, PendingInstall } from "../src/types/index.js";
+import type { TrackState, PendingInstall, ModelProvider } from "../src/types/index.js";
 
 export interface BugBountyAPI {
-  startResearch: (briefPath: string, boxerUrl: string) => Promise<{ started: boolean }>;
+  startResearch: (
+    briefPath: string,
+    boxerUrl: string,
+    provider: ModelProvider,
+    model: string,
+  ) => Promise<{ started: boolean }>;
   writeBrief: (content: string) => Promise<string>;
   readFile: (path: string) => Promise<string | null>;
   pickFile: (filters?: Electron.FileFilter[]) => Promise<string | null>;
@@ -22,8 +27,8 @@ export interface BugBountyAPI {
 }
 
 contextBridge.exposeInMainWorld("bugBounty", {
-  startResearch: (briefPath: string, boxerUrl: string) =>
-    ipcRenderer.invoke("start-research", briefPath, boxerUrl),
+  startResearch: (briefPath: string, boxerUrl: string, provider: ModelProvider, model: string) =>
+    ipcRenderer.invoke("start-research", briefPath, boxerUrl, provider, model),
 
   writeBrief: (content: string) => ipcRenderer.invoke("write-brief", content),
 

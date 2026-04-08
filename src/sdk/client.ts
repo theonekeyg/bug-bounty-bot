@@ -1,16 +1,15 @@
 /**
- * Wrapper around @anthropic-ai/claude-agent-sdk.
+ * Model provider client wrapper.
  *
- * The SDK runs Claude Code as a subprocess using your local `claude` binary
- * and subscription — no API key needed, just `claude auth login`.
- *
- * Agents use Claude Code's native tools (Bash, Read, Write, Glob, Grep, WebFetch).
- * For sandboxed execution, agents call Boxer via curl through the Bash tool.
+ * - Claude Code provider uses @anthropic-ai/claude-agent-sdk and local `claude` auth.
+ * - OpenAI provider uses API key (OPENAI_API_KEY) and responses API.
  */
 
 import { execSync } from "child_process";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import OpenAI from "openai";
+import type { RunModelConfig } from "../types/provider.js";
 
 function resolveClaudeBinary(): string {
   try {
@@ -38,6 +37,7 @@ const claudeBinaryPath = resolveClaudeBinary();
 export interface AgentRunOptions {
   systemPrompt: string;
   prompt: string;
+  modelConfig: RunModelConfig;
   /** Working directory for the agent. Defaults to process.cwd(). */
   cwd?: string;
 }
@@ -48,21 +48,23 @@ export interface AgentRunResult {
   turns: number;
 }
 
-/**
- * Run one agent turn. Claude Code handles all tool calls natively.
- * Returns when the agent signals completion.
- */
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
+  if (opts.modelConfig.provider === "openai") {
+    return runOpenAIAgent(opts);
+  }
+  return runClaudeCodeAgent(opts);
+}
+
+async function runClaudeCodeAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const q = query({
     prompt: opts.prompt,
     options: {
+      model: opts.modelConfig.model,
       systemPrompt: opts.systemPrompt,
       pathToClaudeCodeExecutable: claudeBinaryPath,
       cwd: opts.cwd ?? process.cwd(),
       executable: "bun",
       tools: { type: "preset", preset: "claude_code" },
-      // Auto-allow all tools — this is a local security research tool
-      // with the user's explicit permission.
       canUseTool: async (): Promise<PermissionResult> => ({ behavior: "allow" }),
     },
   });
@@ -86,4 +88,28 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   }
 
   return { result: lastText, costUsd, turns };
+}
+
+async function runOpenAIAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
+  const apiKey = process.env["OPENAI_API_KEY"];
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is required when provider is openai");
+  }
+
+  const client = new OpenAI({ apiKey });
+  const response = await client.responses.create({
+    model: opts.modelConfig.model,
+    input: [
+      { role: "system", content: [{ type: "input_text", text: opts.systemPrompt }] },
+      { role: "user", content: [{ type: "input_text", text: opts.prompt }] },
+    ],
+  });
+
+  const result = response.output_text?.trim() || "";
+  const usage = response.usage;
+  const turns = 1;
+  const costUsd = 0;
+  void usage;
+
+  return { result, costUsd, turns };
 }

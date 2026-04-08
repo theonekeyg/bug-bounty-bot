@@ -4,13 +4,16 @@
  */
 
 import type { BugBountyAPI } from "../preload.js";
-import type { TrackState, PendingInstall } from "../../src/types/index.js";
+import type { TrackState, PendingInstall, ModelProvider } from "../../src/types/index.js";
 
 declare const window: Window & { bugBounty: BugBountyAPI };
 
 const api = window.bugBounty;
 
-// ── Element refs ──────────────────────────────────────────────────────────────
+const DEFAULT_MODELS: Record<ModelProvider, string> = {
+  claude_code: "sonnet",
+  openai: "gpt-5",
+};
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -26,14 +29,17 @@ const permJustification = el("perm-justification");
 const permCommand = el("perm-command");
 const permApprove = el<HTMLButtonElement>("perm-approve");
 const permDeny = el<HTMLButtonElement>("perm-deny");
-
-// ── State ─────────────────────────────────────────────────────────────────────
+const providerSelect = el<HTMLSelectElement>("model-provider");
+const modelInput = el<HTMLInputElement>("model-name");
 
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
-// ── Brief form ────────────────────────────────────────────────────────────────
+providerSelect.addEventListener("change", () => {
+  const provider = providerSelect.value as ModelProvider;
+  modelInput.value = DEFAULT_MODELS[provider] ?? "";
+});
 
 el("pick-code").addEventListener("click", async () => {
   const path = await api.pickFile([{ name: "All", extensions: ["*"] }]);
@@ -45,9 +51,16 @@ startBtn.addEventListener("click", async () => {
   const goal = el<HTMLInputElement>("goal").value.trim();
   const scope = el<HTMLTextAreaElement>("scope").value.trim();
   const boxerUrl = el<HTMLInputElement>("boxer-url").value.trim();
+  const provider = providerSelect.value as ModelProvider;
+  const model = modelInput.value.trim();
 
   if (!target || !goal || !scope) {
     alert("Target, Goal, and Scope are required.");
+    return;
+  }
+
+  if (!model) {
+    alert("Model is required.");
     return;
   }
 
@@ -55,7 +68,6 @@ startBtn.addEventListener("click", async () => {
   const links = el<HTMLInputElement>("links").value.trim();
   const context = el<HTMLTextAreaElement>("context").value.trim();
 
-  // Build brief content and save to a temp file
   const briefContent = [
     `TARGET: ${target}`,
     `SCOPE: ${scope}`,
@@ -72,15 +84,13 @@ startBtn.addEventListener("click", async () => {
   startBtn.disabled = true;
   startBtn.textContent = "Starting...";
 
-  await api.startResearch(briefPath, boxerUrl);
+  await api.startResearch(briefPath, boxerUrl, provider, model);
   startPolling();
 
   welcome.style.display = "none";
   progressView.style.display = "flex";
   startBtn.textContent = "Research Running";
 });
-
-// ── Polling ───────────────────────────────────────────────────────────────────
 
 function startPolling(): void {
   if (pollInterval) clearInterval(pollInterval);
@@ -102,8 +112,6 @@ async function poll(): Promise<void> {
   }
 }
 
-// ── Track rendering ───────────────────────────────────────────────────────────
-
 function renderTracks(states: TrackState[]): void {
   if (states.length === 0) return;
 
@@ -124,11 +132,9 @@ function renderTracks(states: TrackState[]): void {
     tracksContainer.appendChild(card);
   }
 
-  // Auto-select first track if none selected
   const first = states[0];
   if (!activeTrackId && first) selectTrack(first);
 
-  // Update active track's status dot if it changed
   if (activeTrackId) {
     const active = states.find((s) => s.trackId === activeTrackId);
     if (active) {
@@ -142,17 +148,13 @@ async function selectTrack(state: TrackState): Promise<void> {
   activeTitle.textContent = state.trackId;
   activeStatusDot.className = `status-dot ${state.status}`;
 
-  // Load progress.md content via IPC
   const content = await api.readFile(`state/research/${state.trackId}/progress.md`);
   progressLog.textContent = content ?? "(no progress yet)";
   progressLog.scrollTop = progressLog.scrollHeight;
 
-  // Re-render to update active class
   const states = await api.getProgress();
   renderTracks(states);
 }
-
-// ── Permission prompt ─────────────────────────────────────────────────────────
 
 function showPermissionPrompt(install: PendingInstall): void {
   pendingInstall = install;
@@ -174,8 +176,6 @@ permDeny.addEventListener("click", async () => {
   pendingInstall = null;
   permissionOverlay.classList.add("hidden");
 });
-
-// ── Error handling ────────────────────────────────────────────────────────────
 
 api.onResearchError((err: string) => {
   console.error("Research error:", err);

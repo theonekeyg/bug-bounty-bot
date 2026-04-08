@@ -19,6 +19,7 @@ import {
 import { BoxerClient } from "../sandbox/boxer.js";
 import { runRalphLoop, type LoopIteration } from "../loop/runner.js";
 import type { Brief } from "../types/index.js";
+import type { RunModelConfig } from "../types/provider.js";
 
 const SYSTEM_PROMPT = `You are a Researcher in an autonomous security research system.
 
@@ -63,6 +64,7 @@ export async function runResearcher(
   trackId: string,
   brief: Brief,
   boxer: BoxerClient,
+  modelConfig: RunModelConfig,
 ): Promise<void> {
   // Pre-create a Boxer workspace for this track so Claude can reference it
   let workspaceId: string | undefined;
@@ -90,6 +92,7 @@ export async function runResearcher(
         : "";
 
       const result = await runAgent({
+        modelConfig,
         systemPrompt: SYSTEM_PROMPT,
         prompt: buildPrompt({
           trackId,
