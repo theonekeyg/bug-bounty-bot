@@ -59,6 +59,7 @@ export async function runOrchestrator(
         systemPrompt: SYSTEM_PROMPT,
         prompt: buildPrompt(brief, raw),
         cwd: process.cwd(),
+        trackId: "orchestrator",
       });
 
       if (result.result.includes("ORCHESTRATION_DONE")) {

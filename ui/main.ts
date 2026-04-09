@@ -9,6 +9,7 @@ import { readFile, readdir, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { BoxerClient } from "../src/sandbox/boxer.js";
 import { runOrchestrator } from "../src/orchestrator/agent.js";
+import { ipcBus, type ResearchLogEvent } from "../src/ipc/bus.js";
 import { readAllTrackStates } from "../src/loop/state.js";
 import type { PendingInstall } from "../src/types/state.js";
 import { PendingInstallSchema } from "../src/types/state.js";
@@ -61,6 +62,11 @@ function createWindow(): void {
     mainWindow.webContents.openDevTools();
   }
 }
+
+// Forward streaming log chunks from agents → renderer
+ipcBus.on("research-log", (event: ResearchLogEvent) => {
+  mainWindow?.webContents.send("research-log", event);
+});
 
 app.whenReady().then(async () => {
   // Apply saved API keys to env before any agent runs

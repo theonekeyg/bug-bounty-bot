@@ -18,6 +18,7 @@ export interface BugBountyAPI {
     install: PendingInstall,
   ) => Promise<{ approved: boolean; output?: string; exitCode?: number; error?: string }>;
   onResearchError: (cb: (err: string) => void) => void;
+  onResearchLog: (cb: (trackId: string, text: string) => void) => void;
   getSettings: () => Promise<AppSettings>;
   saveSettings: (settings: AppSettings) => Promise<void>;
 }
@@ -41,6 +42,11 @@ contextBridge.exposeInMainWorld("bugBounty", {
 
   onResearchError: (cb: (err: string) => void) =>
     ipcRenderer.on("research-error", (_event, err: string) => cb(err)),
+
+  onResearchLog: (cb: (trackId: string, text: string) => void) =>
+    ipcRenderer.on("research-log", (_event, { trackId, text }: { trackId: string; text: string }) =>
+      cb(trackId, text),
+    ),
 
   getSettings: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke("save-settings", settings),

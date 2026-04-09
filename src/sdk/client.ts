@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import OpenAI from "openai";
 import type { RunModelConfig, SupportedModel } from "../types/provider.js";
 import { getModelProvider } from "../types/provider.js";
+import { ipcBus } from "../ipc/bus.js";
 
 let _openai: OpenAI | null = null;
 
@@ -15,6 +16,7 @@ export interface AgentRunOptions {
   prompt: string;
   modelConfig: RunModelConfig;
   cwd?: string;
+  trackId?: string; // used to stream progress back to the UI
 }
 
 export interface AgentRunResult {
@@ -37,7 +39,11 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       ],
     });
 
-    return { result: response.output_text?.trim() ?? "", costUsd: 0, turns: 1 };
+    const text = response.output_text?.trim() ?? "";
+    if (opts.trackId && text) {
+      ipcBus.emit("research-log", { trackId: opts.trackId, text: text + "\n" });
+    }
+    return { result: text, costUsd: 0, turns: 1 };
   }
 
   // Anthropic — uses Claude Code subscription via the agent SDK (no API key needed).
@@ -54,6 +60,18 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   });
 
   for await (const message of stream) {
+    // Stream text deltas to the UI in real time
+    if (message.type === "stream_event") {
+      const event = message.event;
+      if (
+        event.type === "content_block_delta" &&
+        event.delta.type === "text_delta" &&
+        opts.trackId
+      ) {
+        ipcBus.emit("research-log", { trackId: opts.trackId, text: event.delta.text });
+      }
+    }
+
     if (message.type === "result") {
       if (message.subtype !== "success") {
         throw new Error(`Claude agent error (${message.subtype}): ${message.errors.join(", ")}`);

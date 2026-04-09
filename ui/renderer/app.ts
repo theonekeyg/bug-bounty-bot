@@ -461,7 +461,7 @@ startBtn.addEventListener("click", async () => {
 
 function startPolling(): void {
   if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(poll, 3000);
+  pollInterval = setInterval(poll, 1000);
   void poll();
 }
 
@@ -473,6 +473,19 @@ async function poll(): Promise<void> {
 
   renderTracks(states);
 
+  // Re-read the active track's log on every poll (catches anything missed between stream events)
+  if (activeTrackId) {
+    const path =
+      activeTrackId === "orchestrator"
+        ? "state/research/orchestrator/progress.md"
+        : `state/research/${activeTrackId}/progress.md`;
+    const content = await api.readFile(path);
+    if (content !== null && content !== progressLog.textContent) {
+      progressLog.textContent = content;
+      progressLog.scrollTop = progressLog.scrollHeight;
+    }
+  }
+
   if (pendingInstalls.length > 0 && !pendingInstall) {
     const install = pendingInstalls[0];
     if (install) showPermissionPrompt(install);
@@ -480,7 +493,27 @@ async function poll(): Promise<void> {
 }
 
 function renderTracks(states: TrackState[]): void {
-  if (states.length === 0) return;
+  if (states.length === 0) {
+    // Orchestrator is still running — show a synthetic entry so the UI isn't blank
+    tracksContainer.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "track-card active";
+    card.innerHTML = `
+      <div class="track-header">
+        <span class="status-dot running"></span>
+        <span class="track-id">orchestrator</span>
+        <span style="font-size:11px;color:var(--muted)">running</span>
+      </div>
+      <div class="track-hypo">Mapping attack surface…</div>
+    `;
+    tracksContainer.appendChild(card);
+    if (!activeTrackId) {
+      activeTrackId = "orchestrator";
+      activeTitle.textContent = "orchestrator";
+      activeStatusDot.className = "status-dot running";
+    }
+    return;
+  }
 
   tracksContainer.innerHTML = "";
 
@@ -542,6 +575,14 @@ permDeny.addEventListener("click", async () => {
   await api.resolveInstall(pendingInstall.trackId, false, pendingInstall);
   pendingInstall = null;
   permissionOverlay.classList.add("hidden");
+});
+
+// Live streaming: append text chunks as they arrive from the agent
+api.onResearchLog((trackId: string, text: string) => {
+  if (trackId === activeTrackId) {
+    progressLog.textContent = (progressLog.textContent ?? "") + text;
+    progressLog.scrollTop = progressLog.scrollHeight;
+  }
 });
 
 api.onResearchError((err: string) => {

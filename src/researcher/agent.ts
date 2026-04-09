@@ -103,6 +103,7 @@ export async function runResearcher(
           ...(workspaceId !== undefined ? { workspaceId } : {}),
         }),
         cwd: process.cwd(),
+        trackId,
       });
 
       const response = result.result;
