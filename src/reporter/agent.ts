@@ -43,6 +43,7 @@ export async function runReporter(boxer: BoxerClient, modelConfig: RunModelConfi
     systemPrompt: SYSTEM_PROMPT,
     prompt: await buildPrompt(states),
     cwd: process.cwd(),
+    allowedTools: ["Write", "Read"],
   });
 
   // Fallback: write the raw response if the agent didn't use the Write tool

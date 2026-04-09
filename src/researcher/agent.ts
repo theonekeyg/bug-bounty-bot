@@ -104,6 +104,7 @@ export async function runResearcher(
         }),
         cwd: process.cwd(),
         trackId,
+        allowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"],
       });
 
       const response = result.result;

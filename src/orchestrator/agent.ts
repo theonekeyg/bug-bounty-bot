@@ -68,6 +68,8 @@ export async function runOrchestrator(
         prompt: buildPrompt(brief, raw),
         cwd: process.cwd(),
         trackId: "orchestrator",
+        allowedTools: ["Write", "Read", "Edit", "Glob", "Grep"],
+        persistHeartbeats: true,
       });
 
       if (result.result.includes("ORCHESTRATION_DONE")) {
