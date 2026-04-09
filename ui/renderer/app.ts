@@ -42,12 +42,29 @@ const tracksContainer = el("tracks-container");
 const welcome = el("welcome");
 const progressView = el("progress-view");
 const sessionStagePill = el("session-stage-pill");
+const sessionHealthPill = el("session-health-pill");
+const sessionLastActivity = el("session-last-activity");
 const sessionUpdatedAt = el("session-updated-at");
 const sessionHeadline = el("session-headline");
 const sessionDetail = el("session-detail");
-const activityTab = el<HTMLButtonElement>("activity-tab");
-const rawLogTab = el<HTMLButtonElement>("raw-log-tab");
-const activityFeed = el("activity-feed");
+const sessionElapsed = el("session-elapsed");
+const sessionActivityState = el("session-activity-state");
+const sessionTrackCount = el("session-track-count");
+const sessionActionState = el("session-action-state");
+const overviewSubtitle = el("overview-subtitle");
+const overviewTrackCaption = el("overview-track-caption");
+const actionCenterCaption = el("action-center-caption");
+const milestoneList = el("milestone-list");
+const overviewTrackGrid = el("overview-track-grid");
+const actionCenter = el("action-center");
+const overviewTab = el<HTMLButtonElement>("overview-tab");
+const tracksTab = el<HTMLButtonElement>("tracks-tab");
+const debugTab = el<HTMLButtonElement>("debug-tab");
+const overviewPanel = el("overview-panel");
+const tracksPanel = el("tracks-panel");
+const debugPanel = el("debug-panel");
+const tracksGrid = el("tracks-grid");
+const tracksPanelCaption = el("tracks-panel-caption");
 const progressLog = el("progress-log");
 const activeTitle = el("active-track-title");
 const activeStatusDot = el("active-status-dot");
@@ -58,18 +75,29 @@ const permApprove = el<HTMLButtonElement>("perm-approve");
 const permDeny = el<HTMLButtonElement>("perm-deny");
 const modelInput = el<HTMLInputElement>("model-name");
 const openaiKeyInput = el<HTMLInputElement>("openai-key");
+const runtimeSessionCard = el("runtime-session-card");
+const runtimeHealthDot = el("runtime-health-dot");
+const runtimeTarget = el("runtime-target");
+const runtimeModel = el("runtime-model");
+const runtimeBoxer = el("runtime-boxer");
+const runtimeHealthLabel = el("runtime-health-label");
+const stageRail = el("stage-rail");
 
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
-let activeView: "activity" | "raw" = "activity";
+let activeView: "overview" | "tracks" | "debug" = "overview";
 let runtimeEvents: RuntimeEvent[] = [];
 let sessionStage = "Starting";
 let sessionHeadlineText = "Preparing session...";
 let sessionDetailText = "Live runtime updates will appear here.";
 let sessionLastUpdated: string | null = null;
+let sessionStartedAt: string | null = null;
+let currentStates: TrackState[] = [];
 const trackHeadlineById = new Map<string, string>();
 const trackStageById = new Map<string, string>();
+let milestoneEvents: RuntimeEvent[] = [];
+const milestoneSignatures: string[] = [];
 
 function setSessionConfigLocked(locked: boolean): void {
   targetInput.disabled = locked;
@@ -88,94 +116,295 @@ function formatEventTime(timestamp: string): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function formatRelativeTime(timestamp: string | null): string {
+  if (!timestamp) return "No activity yet";
+  const diffSec = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000));
+  if (diffSec < 5) return "Just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  return `${diffHr}h ago`;
+}
+
+function formatElapsed(timestamp: string | null): string {
+  if (!timestamp) return "00:00";
+  const totalSec = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000));
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function humanizeTrackTitle(trackId: string, fallback?: string): string {
+  const source = fallback && fallback.trim().length > 0 ? fallback : trackId;
+  return source.replaceAll(/[-_]/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function summarizeTrack(state: TrackState): string {
+  return trackHeadlineById.get(state.trackId) ?? trackStageById.get(state.trackId) ?? state.hypothesis;
+}
+
+function getSessionHealth(): { label: string; tone: "" | "warning" | "error" } {
+  const latest = runtimeEvents.at(-1);
+  if (pendingInstall) return { label: "Needs approval", tone: "warning" };
+  if (latest?.severity === "error") return { label: "Attention needed", tone: "error" };
+  if (latest?.severity === "warning") return { label: "Watching closely", tone: "warning" };
+  return { label: "Healthy", tone: "" };
+}
+
+function stageKeyForStage(stage: string): string {
+  const normalized = stage.toLowerCase();
+  if (normalized.includes("brief") || normalized.includes("preparing") || normalized.includes("loading")) return "brief";
+  if (normalized.includes("surface") || normalized.includes("attack")) return "surface";
+  if (normalized.includes("launching") || normalized.includes("track")) return "tracks";
+  if (normalized.includes("research") || normalized.includes("investigat") || normalized.includes("waiting")) return "research";
+  if (normalized.includes("report")) return "report";
+  return "brief";
+}
+
+function milestoneSignature(event: RuntimeEvent): string {
+  return `${event.kind}|${event.scope}|${event.trackId ?? "session"}|${event.title}|${event.detail ?? ""}|${event.stage ?? ""}`;
+}
+
+function isMilestoneEvent(event: RuntimeEvent): boolean {
+  return (
+    event.kind === "session_started" ||
+    event.kind === "track_created" ||
+    event.kind === "track_status_changed" ||
+    event.kind === "permission_required" ||
+    event.kind === "error" ||
+    event.kind === "session_completed" ||
+    (event.kind === "stage_changed" && !event.stage?.toLowerCase().includes("generating output")) ||
+    (event.kind === "waiting" && event.scope === "session")
+  );
+}
+
 function resetRuntimeState(): void {
   runtimeEvents = [];
+  milestoneEvents = [];
+  milestoneSignatures.length = 0;
   sessionStage = "Starting";
   sessionHeadlineText = "Preparing session...";
   sessionDetailText = "Live runtime updates will appear here.";
   sessionLastUpdated = null;
+  sessionStartedAt = null;
+  currentStates = [];
   trackHeadlineById.clear();
   trackStageById.clear();
+  document.body.classList.remove("session-live");
   renderSessionSummary();
-  renderActivityFeed();
+  renderStageRail();
+  renderMilestones();
+  renderOverviewTrackGrid();
+  renderTracksGrid();
+  renderActionCenter();
 }
 
-function setActiveView(view: "activity" | "raw"): void {
+function setActiveView(view: "overview" | "tracks" | "debug"): void {
   activeView = view;
-  activityTab.classList.toggle("active", view === "activity");
-  rawLogTab.classList.toggle("active", view === "raw");
-  activityFeed.classList.toggle("hidden", view !== "activity");
-  progressLog.classList.toggle("hidden", view !== "raw");
+  overviewTab.classList.toggle("active", view === "overview");
+  tracksTab.classList.toggle("active", view === "tracks");
+  debugTab.classList.toggle("active", view === "debug");
+  overviewPanel.classList.toggle("hidden", view !== "overview");
+  tracksPanel.classList.toggle("hidden", view !== "tracks");
+  debugPanel.classList.toggle("hidden", view !== "debug");
 }
 
 function renderSessionSummary(): void {
+  const health = getSessionHealth();
   sessionStagePill.textContent = sessionStage;
+  sessionHealthPill.textContent = health.label;
+  sessionHealthPill.className = `health-pill ${health.tone}`.trim();
+  sessionLastActivity.textContent = `Last activity ${formatRelativeTime(sessionLastUpdated)}`;
   sessionHeadline.textContent = sessionHeadlineText;
   sessionDetail.textContent = sessionDetailText;
   sessionUpdatedAt.textContent = sessionLastUpdated
     ? `Last update ${formatEventTime(sessionLastUpdated)}`
-    : "No activity yet";
+    : "Session initiated just now";
+  sessionElapsed.textContent = formatElapsed(sessionStartedAt);
+  sessionActivityState.textContent = sessionStage;
+  sessionTrackCount.textContent = `${currentStates.filter((state) => state.status === "running").length} live`;
+  sessionActionState.textContent = pendingInstall ? "Approval required" : "No action required";
+  overviewSubtitle.textContent = pendingInstall
+    ? "Runtime paused on an action requiring approval"
+    : "Meaningful progress is surfaced here, transport noise stays out of the way";
+  overviewTrackCaption.textContent = currentStates.length > 0
+    ? `${currentStates.length} track${currentStates.length === 1 ? "" : "s"} in circulation`
+    : "Researchers will appear here after orchestration";
+  actionCenterCaption.textContent = pendingInstall ? "Action needed to continue" : "Watching for blockers";
+
+  runtimeHealthDot.className = `runtime-health-dot ${health.tone}`.trim();
+  runtimeHealthLabel.textContent = health.label;
 }
 
-function getVisibleRuntimeEvents(): RuntimeEvent[] {
-  if (!activeTrackId || activeTrackId === "orchestrator") {
-    return runtimeEvents.filter((event) => event.scope === "session" || event.trackId === "orchestrator" || !event.trackId);
-  }
-  return runtimeEvents.filter((event) => event.scope === "session" || event.trackId === activeTrackId);
+function renderStageRail(): void {
+  const activeKey = stageKeyForStage(sessionStage);
+  const stageOrder = ["brief", "surface", "tracks", "research", "report"];
+  const activeIndex = stageOrder.indexOf(activeKey);
+
+  Array.from(stageRail.querySelectorAll<HTMLElement>(".stage-step")).forEach((step) => {
+    const key = step.dataset.stageKey ?? "brief";
+    const idx = stageOrder.indexOf(key);
+    const statusLabel = step.querySelector<HTMLElement>(".stage-step-status");
+    if (!statusLabel) return;
+
+    step.classList.remove("complete", "active", "pending");
+    if (idx < activeIndex) {
+      step.classList.add("complete");
+      statusLabel.textContent = "Complete";
+      return;
+    }
+    if (idx === activeIndex) {
+      step.classList.add("active");
+      statusLabel.textContent = "Live";
+      return;
+    }
+    step.classList.add("pending");
+    statusLabel.textContent = "Pending";
+  });
 }
 
-function renderActivityFeed(): void {
-  const visibleEvents = getVisibleRuntimeEvents().slice(-80);
-  activityFeed.innerHTML = "";
+function renderMilestones(): void {
+  milestoneList.innerHTML = "";
+  const milestones = milestoneEvents.slice(-8);
 
-  if (visibleEvents.length === 0) {
+  if (milestones.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "activity-empty";
-    empty.textContent = "Structured runtime activity will appear here as the agent progresses.";
-    activityFeed.appendChild(empty);
+    empty.className = "milestone-detail";
+    empty.textContent = "The orchestrator is warming up. Milestones will appear here as meaningful progress lands.";
+    milestoneList.appendChild(empty);
     return;
   }
 
-  for (const event of visibleEvents) {
+  for (const event of milestones) {
     const row = document.createElement("div");
-    row.className = "activity-item";
+    row.className = "milestone-row";
 
     const time = document.createElement("div");
-    time.className = "activity-time";
+    time.className = "milestone-time";
     time.textContent = formatEventTime(event.timestamp);
 
-    const body = document.createElement("div");
-    body.className = "activity-body";
+    const content = document.createElement("div");
+    content.className = "milestone-content";
 
-    const titleRow = document.createElement("div");
-    titleRow.className = "activity-title-row";
-
-    const kind = document.createElement("span");
-    kind.className = `activity-kind ${event.severity}`;
-    kind.textContent = event.kind.replaceAll("_", " ");
+    const chip = document.createElement("div");
+    chip.className = "milestone-chip";
+    chip.textContent = event.trackId ? event.trackId : event.kind.replaceAll("_", " ");
 
     const title = document.createElement("div");
-    title.className = "activity-title";
-    title.textContent = event.trackId ? `${event.trackId}: ${event.title}` : event.title;
-
-    titleRow.append(kind, title);
-    body.appendChild(titleRow);
+    title.className = "milestone-title";
+    title.textContent = event.title;
 
     const detail = document.createElement("div");
-    detail.className = "activity-detail";
+    detail.className = "milestone-detail";
     detail.textContent = event.detail ?? event.stage ?? "";
-    body.appendChild(detail);
 
-    row.append(time, body);
-    activityFeed.appendChild(row);
+    content.append(chip, title, detail);
+    row.append(time, content);
+    milestoneList.appendChild(row);
+  }
+}
+
+function renderOverviewTrackGrid(): void {
+  overviewTrackGrid.innerHTML = "";
+
+  if (currentStates.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "action-center-item";
+    empty.innerHTML = `<strong>Orchestrator only</strong><p>Attack-surface mapping is still underway. Research tracks will appear here as soon as hypotheses are created.</p>`;
+    overviewTrackGrid.appendChild(empty);
+    return;
   }
 
-  activityFeed.scrollTop = activityFeed.scrollHeight;
+  for (const state of currentStates.slice(0, 4)) {
+    const card = document.createElement("article");
+    card.className = "track-overview-card";
+    card.innerHTML = `
+      <div class="track-overview-top">
+        <div>
+          <h4>${humanizeTrackTitle(state.trackId, state.hypothesis)}</h4>
+          <p>${trackStageById.get(state.trackId) ?? "Queued for investigation"}</p>
+        </div>
+        <div class="track-status-pill ${state.status}">${state.status}</div>
+      </div>
+      <p>${summarizeTrack(state)}</p>
+      <div class="track-overview-meta">
+        <span>Updated ${formatRelativeTime(state.updatedAt)}</span>
+        <span>${state.trackId}</span>
+      </div>
+    `;
+    overviewTrackGrid.appendChild(card);
+  }
+}
+
+function renderTracksGrid(): void {
+  tracksGrid.innerHTML = "";
+
+  if (currentStates.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "action-center-item";
+    empty.innerHTML = `<strong>No researcher tracks yet</strong><p>The orchestrator is still mapping the target and defining hypotheses.</p>`;
+    tracksGrid.appendChild(empty);
+    tracksPanelCaption.textContent = "Track details will appear after orchestration";
+    return;
+  }
+
+  tracksPanelCaption.textContent = `${currentStates.length} track${currentStates.length === 1 ? "" : "s"} currently known`;
+  for (const state of currentStates) {
+    const card = document.createElement("article");
+    card.className = "track-overview-card";
+    card.innerHTML = `
+      <div class="track-overview-top">
+        <div>
+          <h4>${humanizeTrackTitle(state.trackId, state.hypothesis)}</h4>
+          <p>${trackStageById.get(state.trackId) ?? "Running analysis"}</p>
+        </div>
+        <div class="track-status-pill ${state.status}">${state.status}</div>
+      </div>
+      <p>${summarizeTrack(state)}</p>
+      <div class="track-overview-meta">
+        <span>Last update ${formatRelativeTime(state.updatedAt)}</span>
+        <span>${state.trackId}</span>
+      </div>
+    `;
+    tracksGrid.appendChild(card);
+  }
+}
+
+function renderActionCenter(): void {
+  actionCenter.innerHTML = "";
+
+  if (pendingInstall) {
+    const item = document.createElement("div");
+    item.className = "action-center-item";
+    item.innerHTML = `<strong>Approval required for ${pendingInstall.trackId}</strong><p>${pendingInstall.justification}</p>`;
+    actionCenter.appendChild(item);
+    return;
+  }
+
+  const latest = runtimeEvents.at(-1);
+  if (latest?.severity === "error") {
+    const item = document.createElement("div");
+    item.className = "action-center-item";
+    item.innerHTML = `<strong>Attention needed</strong><p>${latest.detail ?? latest.title}</p>`;
+    actionCenter.appendChild(item);
+    return;
+  }
+
+  const healthy = document.createElement("div");
+  healthy.className = "action-center-item";
+  healthy.innerHTML = `<strong>No action required</strong><p>The system is progressing normally. If the current phase takes longer than expected, the summary hero will call that out.</p>`;
+  actionCenter.appendChild(healthy);
 }
 
 function applyRuntimeEvent(event: RuntimeEvent): void {
   runtimeEvents.push(event);
 
+  if (event.kind === "session_started" && !sessionStartedAt) {
+    sessionStartedAt = event.timestamp;
+  }
   if (event.scope === "session") {
     sessionStage = event.stage ?? sessionStage;
     sessionHeadlineText = event.title;
@@ -190,8 +419,20 @@ function applyRuntimeEvent(event: RuntimeEvent): void {
     }
   }
 
+  if (isMilestoneEvent(event)) {
+    const signature = milestoneSignature(event);
+    if (milestoneSignatures.at(-1) !== signature) {
+      milestoneSignatures.push(signature);
+      milestoneEvents.push(event);
+    }
+  }
+
   renderSessionSummary();
-  renderActivityFeed();
+  renderStageRail();
+  renderMilestones();
+  renderOverviewTrackGrid();
+  renderTracksGrid();
+  renderActionCenter();
 }
 
 type DropdownController = {
@@ -543,11 +784,12 @@ function createModelPicker(): void {
 }
 
 createModelPicker();
-setActiveView("activity");
+setActiveView("overview");
 resetRuntimeState();
 
-activityTab.addEventListener("click", () => setActiveView("activity"));
-rawLogTab.addEventListener("click", () => setActiveView("raw"));
+overviewTab.addEventListener("click", () => setActiveView("overview"));
+tracksTab.addEventListener("click", () => setActiveView("tracks"));
+debugTab.addEventListener("click", () => setActiveView("debug"));
 
 // ── API key persistence ──────────────────────────────────────────────────────
 
@@ -604,10 +846,16 @@ startBtn.addEventListener("click", async () => {
   startBtn.textContent = "Starting...";
   setSessionConfigLocked(true);
   resetRuntimeState();
+  document.body.classList.add("session-live");
   activeTrackId = "orchestrator";
   activeTitle.textContent = "orchestrator";
   activeStatusDot.className = "status-dot running";
   progressLog.textContent = "";
+  runtimeTarget.textContent = target;
+  runtimeModel.textContent = getModelInfo(model as SupportedModel).label;
+  runtimeBoxer.textContent = boxerUrl;
+  runtimeHealthLabel.textContent = "Preparing";
+  runtimeSessionCard.classList.remove("hidden");
 
   await api.startResearch(briefPath, boxerUrl, model);
   startPolling();
@@ -629,7 +877,12 @@ async function poll(): Promise<void> {
     api.getPendingInstalls(),
   ]);
 
+  currentStates = states;
   renderTracks(states);
+  renderSessionSummary();
+  renderOverviewTrackGrid();
+  renderTracksGrid();
+  renderActionCenter();
 
   // Re-read the active track's log on every poll (catches anything missed between stream events)
   if (activeTrackId) {
@@ -670,7 +923,6 @@ function renderTracks(states: TrackState[]): void {
       activeTitle.textContent = "orchestrator";
       activeStatusDot.className = "status-dot running";
     }
-    renderActivityFeed();
     return;
   }
 
@@ -703,8 +955,6 @@ function renderTracks(states: TrackState[]): void {
         : active.trackId;
     }
   }
-
-  renderActivityFeed();
 }
 
 async function selectTrack(state: TrackState): Promise<void> {
@@ -720,7 +970,6 @@ async function selectTrack(state: TrackState): Promise<void> {
 
   const states = await api.getProgress();
   renderTracks(states);
-  renderActivityFeed();
 }
 
 function showPermissionPrompt(install: PendingInstall): void {
@@ -765,10 +1014,12 @@ api.onResearchError((err: string) => {
   startBtn.disabled = false;
   startBtn.textContent = "Start Research";
   setSessionConfigLocked(false);
+  document.body.classList.remove("session-live");
   sessionStage = "Failed";
   sessionHeadlineText = "Research session failed";
   sessionDetailText = err;
   sessionLastUpdated = new Date().toISOString();
   renderSessionSummary();
+  renderActionCenter();
   alert(`Research error: ${err}`);
 });

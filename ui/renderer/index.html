@@ -501,6 +501,539 @@
         border-radius: 6px;
         background: rgba(255,255,255,0.06);
       }
+
+      /* ── Runtime Dashboard ── */
+      body {
+        font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(244, 114, 182, 0.09), transparent 22%),
+          radial-gradient(circle at left 20%, rgba(59, 130, 246, 0.12), transparent 28%),
+          linear-gradient(180deg, #0b0c0f, #090a0d 45%, #07080b);
+      }
+      .titlebar {
+        background: rgba(7, 8, 11, 0.82);
+        backdrop-filter: blur(18px);
+      }
+      .layout {
+        gap: 0;
+      }
+      .sidebar {
+        width: 348px;
+        background: rgba(9, 10, 13, 0.92);
+        backdrop-filter: blur(22px);
+        border-right: 1px solid rgba(255,255,255,0.06);
+      }
+      .main {
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.02), transparent 22%),
+          radial-gradient(circle at top, rgba(148, 163, 184, 0.06), transparent 35%);
+      }
+      #brief-form {
+        position: relative;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }
+      .brief-fields {
+        transition: opacity 0.18s ease, transform 0.18s ease;
+      }
+      .runtime-session-card {
+        display: none;
+        margin-top: 8px;
+        padding: 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015)),
+          rgba(18, 20, 26, 0.9);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+      }
+      .runtime-session-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      .runtime-session-card-title {
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+      .runtime-health-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--blue);
+        box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.15);
+      }
+      .runtime-health-dot.warning {
+        background: var(--yellow);
+        box-shadow: 0 0 0 5px rgba(234, 179, 8, 0.12);
+      }
+      .runtime-health-dot.error {
+        background: var(--red);
+        box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.14);
+      }
+      .runtime-session-meta {
+        display: grid;
+        gap: 10px;
+      }
+      .runtime-session-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 12px;
+      }
+      .runtime-session-row span {
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .runtime-session-row strong {
+        color: var(--text);
+        font-weight: 600;
+        text-align: right;
+      }
+      body.session-live .brief-fields {
+        opacity: 0;
+        transform: translateY(-6px);
+        pointer-events: none;
+        height: 0;
+        overflow: hidden;
+      }
+      body.session-live #runtime-session-card {
+        display: block;
+      }
+      body.session-live #brief-form {
+        padding-bottom: 20px;
+      }
+      #track-list {
+        padding: 20px 18px;
+      }
+      .section-title {
+        color: #6f7687;
+      }
+      .track-card {
+        margin-bottom: 12px;
+        padding: 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.06);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)),
+          rgba(16, 17, 22, 0.88);
+      }
+      .track-card.active {
+        border-color: rgba(96, 165, 250, 0.58);
+        box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18);
+      }
+      .track-header {
+        margin-bottom: 8px;
+      }
+      .track-id {
+        font-size: 12px;
+        color: #d9e0ea;
+      }
+      .track-hypo {
+        color: #95a0b2;
+      }
+      #progress-view {
+        padding: 26px 28px 28px;
+        gap: 18px;
+      }
+      .progress-header {
+        padding: 0 2px;
+        border-bottom: none;
+        align-items: center;
+      }
+      .progress-header h2 {
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      .runtime-hero {
+        position: relative;
+        overflow: hidden;
+        padding: 24px 24px 26px;
+        border-radius: 28px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background:
+          linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(12, 14, 20, 0.94)),
+          linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+        box-shadow:
+          0 18px 48px rgba(0,0,0,0.34),
+          inset 0 1px 0 rgba(255,255,255,0.05);
+      }
+      .runtime-hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 85% 20%, rgba(56, 189, 248, 0.18), transparent 24%),
+          radial-gradient(circle at 18% 18%, rgba(251, 191, 36, 0.12), transparent 16%);
+        pointer-events: none;
+      }
+      .runtime-hero-top {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+      .runtime-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .stage-pill,
+      .health-pill,
+      .meta-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .stage-pill {
+        background: rgba(59, 130, 246, 0.12);
+        border-color: rgba(96, 165, 250, 0.28);
+      }
+      .health-pill {
+        color: #b9d7ff;
+      }
+      .health-pill.warning {
+        color: #fde68a;
+        background: rgba(234, 179, 8, 0.1);
+      }
+      .health-pill.error {
+        color: #fca5a5;
+        background: rgba(239, 68, 68, 0.1);
+      }
+      .runtime-hero-title {
+        position: relative;
+        z-index: 1;
+        max-width: 980px;
+        font-size: 34px;
+        line-height: 1.05;
+        letter-spacing: -0.04em;
+        margin-bottom: 8px;
+      }
+      .runtime-hero-detail {
+        position: relative;
+        z-index: 1;
+        max-width: 880px;
+        color: #98a3b7;
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      .runtime-meta-grid {
+        position: relative;
+        z-index: 1;
+        margin-top: 22px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .runtime-metric {
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.06);
+      }
+      .runtime-metric-label {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #6f7687;
+        margin-bottom: 8px;
+      }
+      .runtime-metric strong {
+        font-size: 15px;
+        color: var(--text);
+      }
+      .stage-rail {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .stage-step {
+        padding: 16px;
+        border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
+      }
+      .stage-step-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #6f7687;
+        margin-bottom: 10px;
+      }
+      .stage-step-status::before {
+        content: "";
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.14);
+      }
+      .stage-step h3 {
+        font-size: 14px;
+        margin-bottom: 6px;
+      }
+      .stage-step p {
+        font-size: 12px;
+        color: #8c96a8;
+        line-height: 1.5;
+      }
+      .stage-step.complete {
+        border-color: rgba(34, 197, 94, 0.24);
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .stage-step.complete .stage-step-status::before {
+        background: var(--green);
+      }
+      .stage-step.active {
+        border-color: rgba(96, 165, 250, 0.4);
+        background: rgba(59, 130, 246, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
+      }
+      .stage-step.active .stage-step-status,
+      .stage-step.active h3 {
+        color: #dbeafe;
+      }
+      .stage-step.active .stage-step-status::before {
+        background: var(--blue);
+      }
+      .stage-step.pending {
+        opacity: 0.64;
+      }
+      .dashboard-tabs {
+        display: flex;
+        gap: 10px;
+      }
+      .view-tab {
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+      }
+      .view-tab.active {
+        background: linear-gradient(180deg, rgba(96, 165, 250, 0.18), rgba(59, 130, 246, 0.08));
+        border-color: rgba(96, 165, 250, 0.34);
+      }
+      .dashboard-panels {
+        flex: 1;
+        min-height: 0;
+      }
+      .dashboard-panel {
+        height: 100%;
+        min-height: 0;
+      }
+      .overview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+        gap: 18px;
+        min-height: 0;
+      }
+      .panel-stack {
+        display: grid;
+        gap: 18px;
+      }
+      .dashboard-card {
+        border-radius: 24px;
+        border: 1px solid rgba(255,255,255,0.07);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015)),
+          rgba(15, 17, 22, 0.92);
+        box-shadow: 0 14px 34px rgba(0,0,0,0.22);
+      }
+      .dashboard-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 18px 20px 0;
+      }
+      .dashboard-card-header h3 {
+        font-size: 16px;
+        letter-spacing: -0.02em;
+      }
+      .dashboard-card-subtle {
+        color: #7f889b;
+        font-size: 12px;
+      }
+      .dashboard-card-body {
+        padding: 18px 20px 20px;
+      }
+      .milestone-list,
+      .debug-feed {
+        display: grid;
+        gap: 14px;
+      }
+      .milestone-row {
+        display: grid;
+        grid-template-columns: 92px 1fr;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .milestone-time {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: #667084;
+        padding-top: 3px;
+      }
+      .milestone-content {
+        min-width: 0;
+        padding-bottom: 14px;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+      }
+      .milestone-chip {
+        display: inline-flex;
+        align-items: center;
+        margin-bottom: 8px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.05);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #8e98aa;
+      }
+      .milestone-title {
+        font-size: 14px;
+        color: #eef2ff;
+        margin-bottom: 5px;
+      }
+      .milestone-detail {
+        font-size: 12px;
+        line-height: 1.55;
+        color: #8d97aa;
+      }
+      .overview-track-grid,
+      .tracks-grid {
+        display: grid;
+        gap: 14px;
+      }
+      .track-overview-card {
+        padding: 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
+      }
+      .track-overview-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .track-overview-card h4 {
+        font-size: 15px;
+        margin-bottom: 4px;
+      }
+      .track-overview-card p {
+        font-size: 12px;
+        line-height: 1.55;
+        color: #8c96a8;
+      }
+      .track-status-pill {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+      }
+      .track-status-pill.running {
+        color: #bfdbfe;
+        background: rgba(59, 130, 246, 0.12);
+      }
+      .track-status-pill.found {
+        color: #bbf7d0;
+        background: rgba(34, 197, 94, 0.12);
+      }
+      .track-status-pill.blocked {
+        color: #fde68a;
+        background: rgba(234, 179, 8, 0.12);
+      }
+      .track-status-pill.disproven {
+        color: #d1d5db;
+        background: rgba(148, 163, 184, 0.12);
+      }
+      .track-status-pill.awaiting_permission {
+        color: #fecaca;
+        background: rgba(239, 68, 68, 0.12);
+      }
+      .track-overview-meta {
+        display: flex;
+        gap: 14px;
+        margin-top: 12px;
+        font-size: 11px;
+        color: #6f7687;
+      }
+      .action-center-item {
+        padding: 14px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+      }
+      .action-center-item:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+      }
+      .action-center-item strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+      .action-center-item p {
+        color: #8b95a7;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+      #progress-log {
+        height: 100%;
+        padding: 18px 20px 20px;
+        border-radius: 24px;
+        border: 1px solid rgba(255,255,255,0.07);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)),
+          rgba(15, 17, 22, 0.92);
+      }
+      .debug-topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      .debug-topline h3 {
+        font-size: 16px;
+      }
+      .debug-copy {
+        color: #8b95a7;
+        font-size: 12px;
+      }
+      @media (max-width: 1280px) {
+        .overview-grid {
+          grid-template-columns: 1fr;
+        }
+        .runtime-meta-grid,
+        .stage-rail {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
     </style>
   </head>
   <body>
@@ -511,72 +1044,86 @@
       <div class="sidebar">
         <div class="section" id="brief-form">
           <div class="section-title">New Research</div>
-
-          <div class="field">
-            <label>Target</label>
-            <input type="text" id="target" placeholder="e.g. Acme Corp API" />
-          </div>
-          <div class="field">
-            <label>Goal</label>
-            <input type="text" id="goal" placeholder="e.g. Find auth bypass in /api/v2" />
-          </div>
-          <div class="field">
-            <label>Scope</label>
-            <textarea id="scope" rows="2" placeholder="In scope: api.acme.com&#10;Out of scope: billing endpoints"></textarea>
-          </div>
-          <div class="field">
-            <label>Code path (optional)</label>
-            <div class="file-picker">
-              <input type="text" id="code-path" placeholder="/path/to/repo" readonly />
-              <button class="btn-sm" id="pick-code">Browse</button>
+          <div class="brief-fields">
+            <div class="field">
+              <label>Target</label>
+              <input type="text" id="target" placeholder="e.g. Acme Corp API" />
             </div>
-          </div>
-          <div class="field">
-            <label>Links (comma-separated)</label>
-            <input type="text" id="links" placeholder="https://github.com/..." />
-          </div>
-          <div class="field">
-            <label>Context</label>
-            <textarea id="context" rows="2" placeholder="Node.js backend, JWT auth, PostgreSQL..."></textarea>
-          </div>
-          <div class="field">
-            <label>Model</label>
-            <div class="dropdown" id="model-dropdown">
-              <input type="hidden" id="model-name" value="claude-sonnet-4-6" />
-              <button
-                type="button"
-                class="dropdown-trigger"
-                id="model-trigger"
-                aria-haspopup="listbox"
-                aria-expanded="false"
-                aria-controls="model-menu"
-              >
-                <span class="dropdown-copy">
-                  <span class="dropdown-value" id="model-value">Claude Sonnet 4.6</span>
-                  <span class="dropdown-meta" id="model-meta">Anthropic · Balanced speed &amp; intelligence</span>
-                </span>
-                <span class="dropdown-chevron" aria-hidden="true"></span>
-              </button>
-              <div class="dropdown-menu hidden" id="model-menu" role="listbox" aria-labelledby="model-trigger"></div>
+            <div class="field">
+              <label>Goal</label>
+              <input type="text" id="goal" placeholder="e.g. Find auth bypass in /api/v2" />
             </div>
-          </div>
-          <div class="field">
-            <label>Boxer URL</label>
-            <input type="text" id="boxer-url" value="http://localhost:8080" />
-          </div>
-
-          <details class="api-keys-section">
-            <summary class="api-keys-toggle">API Keys</summary>
-            <div class="api-keys-body">
-              <div class="field">
-                <label>OpenAI API Key</label>
-                <input type="password" id="openai-key" placeholder="sk-..." autocomplete="off" />
+            <div class="field">
+              <label>Scope</label>
+              <textarea id="scope" rows="2" placeholder="In scope: api.acme.com&#10;Out of scope: billing endpoints"></textarea>
+            </div>
+            <div class="field">
+              <label>Code path (optional)</label>
+              <div class="file-picker">
+                <input type="text" id="code-path" placeholder="/path/to/repo" readonly />
+                <button class="btn-sm" id="pick-code">Browse</button>
               </div>
-              <p class="api-keys-note">Anthropic models use your Claude Code subscription (<code>claude auth login</code>).</p>
             </div>
-          </details>
+            <div class="field">
+              <label>Links (comma-separated)</label>
+              <input type="text" id="links" placeholder="https://github.com/..." />
+            </div>
+            <div class="field">
+              <label>Context</label>
+              <textarea id="context" rows="2" placeholder="Node.js backend, JWT auth, PostgreSQL..."></textarea>
+            </div>
+            <div class="field">
+              <label>Model</label>
+              <div class="dropdown" id="model-dropdown">
+                <input type="hidden" id="model-name" value="claude-sonnet-4-6" />
+                <button
+                  type="button"
+                  class="dropdown-trigger"
+                  id="model-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                  aria-controls="model-menu"
+                >
+                  <span class="dropdown-copy">
+                    <span class="dropdown-value" id="model-value">Claude Sonnet 4.6</span>
+                    <span class="dropdown-meta" id="model-meta">Anthropic · Balanced speed &amp; intelligence</span>
+                  </span>
+                  <span class="dropdown-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="dropdown-menu hidden" id="model-menu" role="listbox" aria-labelledby="model-trigger"></div>
+              </div>
+            </div>
+            <div class="field">
+              <label>Boxer URL</label>
+              <input type="text" id="boxer-url" value="http://localhost:8080" />
+            </div>
 
-          <button class="btn-primary" id="start-btn">Start Research</button>
+            <details class="api-keys-section">
+              <summary class="api-keys-toggle">API Keys</summary>
+              <div class="api-keys-body">
+                <div class="field">
+                  <label>OpenAI API Key</label>
+                  <input type="password" id="openai-key" placeholder="sk-..." autocomplete="off" />
+                </div>
+                <p class="api-keys-note">Anthropic models use your Claude Code subscription (<code>claude auth login</code>).</p>
+              </div>
+            </details>
+
+            <button class="btn-primary" id="start-btn">Start Research</button>
+          </div>
+
+          <div class="runtime-session-card" id="runtime-session-card">
+            <div class="runtime-session-card-header">
+              <div class="runtime-session-card-title">Session Runtime</div>
+              <div class="runtime-health-dot" id="runtime-health-dot"></div>
+            </div>
+            <div class="runtime-session-meta">
+              <div class="runtime-session-row"><span>Target</span><strong id="runtime-target">—</strong></div>
+              <div class="runtime-session-row"><span>Model</span><strong id="runtime-model">—</strong></div>
+              <div class="runtime-session-row"><span>Boxer</span><strong id="runtime-boxer">—</strong></div>
+              <div class="runtime-session-row"><span>Health</span><strong id="runtime-health-label">Preparing</strong></div>
+            </div>
+          </div>
         </div>
 
         <div id="track-list">
@@ -596,21 +1143,116 @@
             <div class="status-dot running" id="active-status-dot"></div>
             <h2 id="active-track-title">—</h2>
           </div>
-          <div class="runtime-summary">
-            <div class="runtime-summary-top">
-              <div class="stage-pill" id="session-stage-pill">Starting</div>
-              <div class="runtime-summary-meta" id="session-updated-at">No activity yet</div>
+          <section class="runtime-hero">
+            <div class="runtime-hero-top">
+              <div class="runtime-badges">
+                <div class="stage-pill" id="session-stage-pill">Starting</div>
+                <div class="health-pill" id="session-health-pill">Preparing</div>
+                <div class="meta-pill" id="session-last-activity">No activity yet</div>
+              </div>
+              <div class="dashboard-card-subtle" id="session-updated-at">Session initiated just now</div>
             </div>
-            <div class="runtime-summary-headline" id="session-headline">Preparing session…</div>
-            <div class="runtime-summary-detail" id="session-detail">Live runtime updates will appear here.</div>
+            <div class="runtime-hero-title" id="session-headline">Preparing session…</div>
+            <div class="runtime-hero-detail" id="session-detail">Live runtime updates will appear here.</div>
+            <div class="runtime-meta-grid">
+              <div class="runtime-metric">
+                <span class="runtime-metric-label">Elapsed</span>
+                <strong id="session-elapsed">00:00</strong>
+              </div>
+              <div class="runtime-metric">
+                <span class="runtime-metric-label">Activity</span>
+                <strong id="session-activity-state">Booting orchestration</strong>
+              </div>
+              <div class="runtime-metric">
+                <span class="runtime-metric-label">Active Tracks</span>
+                <strong id="session-track-count">0 live</strong>
+              </div>
+              <div class="runtime-metric">
+                <span class="runtime-metric-label">Action Center</span>
+                <strong id="session-action-state">No action required</strong>
+              </div>
+            </div>
+          </section>
+          <section class="stage-rail" id="stage-rail">
+            <article class="stage-step pending" data-stage-key="brief">
+              <div class="stage-step-status">Pending</div>
+              <h3>Brief</h3>
+              <p>Load the session brief, model, and environment.</p>
+            </article>
+            <article class="stage-step pending" data-stage-key="surface">
+              <div class="stage-step-status">Pending</div>
+              <h3>Surface</h3>
+              <p>Map the attack surface and frame the first hypotheses.</p>
+            </article>
+            <article class="stage-step pending" data-stage-key="tracks">
+              <div class="stage-step-status">Pending</div>
+              <h3>Tracks</h3>
+              <p>Create and launch focused research tracks.</p>
+            </article>
+            <article class="stage-step pending" data-stage-key="research">
+              <div class="stage-step-status">Pending</div>
+              <h3>Research</h3>
+              <p>Run investigations, commands, and evidence gathering.</p>
+            </article>
+            <article class="stage-step pending" data-stage-key="report">
+              <div class="stage-step-status">Pending</div>
+              <h3>Report</h3>
+              <p>Synthesize findings and prepare the final output.</p>
+            </article>
+          </section>
+          <div class="dashboard-tabs">
+            <button class="view-tab active" id="overview-tab" type="button">Overview</button>
+            <button class="view-tab" id="tracks-tab" type="button">Tracks</button>
+            <button class="view-tab" id="debug-tab" type="button">Debug</button>
           </div>
-          <div class="view-tabs">
-            <button class="view-tab active" id="activity-tab" type="button">Activity</button>
-            <button class="view-tab" id="raw-log-tab" type="button">Raw Log</button>
-          </div>
-          <div class="progress-panels">
-            <div class="activity-feed" id="activity-feed"></div>
-            <div id="progress-log" class="hidden"></div>
+          <div class="dashboard-panels">
+            <div class="dashboard-panel" id="overview-panel">
+              <div class="overview-grid">
+                <div class="panel-stack">
+                  <section class="dashboard-card">
+                    <div class="dashboard-card-header">
+                      <h3>Mission Overview</h3>
+                      <div class="dashboard-card-subtle" id="overview-subtitle">Live orchestration summary</div>
+                    </div>
+                    <div class="dashboard-card-body">
+                      <div class="milestone-list" id="milestone-list"></div>
+                    </div>
+                  </section>
+                </div>
+                <div class="panel-stack">
+                  <section class="dashboard-card">
+                    <div class="dashboard-card-header">
+                      <h3>Active Tracks</h3>
+                      <div class="dashboard-card-subtle" id="overview-track-caption">No tracks yet</div>
+                    </div>
+                    <div class="dashboard-card-body">
+                      <div class="overview-track-grid" id="overview-track-grid"></div>
+                    </div>
+                  </section>
+                  <section class="dashboard-card">
+                    <div class="dashboard-card-header">
+                      <h3>Action Center</h3>
+                      <div class="dashboard-card-subtle" id="action-center-caption">Watching for blockers</div>
+                    </div>
+                    <div class="dashboard-card-body" id="action-center"></div>
+                  </section>
+                </div>
+              </div>
+            </div>
+            <div class="dashboard-panel hidden" id="tracks-panel">
+              <section class="dashboard-card" style="height:100%">
+                <div class="dashboard-card-header">
+                  <h3>Track Console</h3>
+                  <div class="dashboard-card-subtle" id="tracks-panel-caption">Latest stage and evidence across tracks</div>
+                </div>
+                <div class="dashboard-card-body" style="height:calc(100% - 62px); overflow-y:auto;">
+                  <div class="tracks-grid" id="tracks-grid"></div>
+                </div>
+              </section>
+            </div>
+            <div class="dashboard-panel hidden" id="debug-panel">
+              <div id="progress-log"></div>
+            </div>
           </div>
         </div>
       </div>
