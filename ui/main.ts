@@ -14,6 +14,30 @@ import type { PendingInstall } from "../src/types/state.js";
 import { PendingInstallSchema } from "../src/types/state.js";
 import { RunModelConfigSchema } from "../src/types/provider.js";
 
+export interface AppSettings {
+  openaiKey: string;
+  anthropicKey: string;
+}
+
+const SETTINGS_FILE = () => join(app.getPath("userData"), "settings.json");
+
+async function loadSettings(): Promise<AppSettings> {
+  try {
+    const raw = await readFile(SETTINGS_FILE(), "utf-8");
+    const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    return { openaiKey: parsed.openaiKey ?? "", anthropicKey: parsed.anthropicKey ?? "" };
+  } catch {
+    return { openaiKey: "", anthropicKey: "" };
+  }
+}
+
+async function saveSettings(settings: AppSettings): Promise<void> {
+  await writeFile(SETTINGS_FILE(), JSON.stringify(settings, null, 2), "utf-8");
+  // Immediately apply to env so running agents pick them up
+  if (settings.openaiKey) process.env["OPENAI_API_KEY"] = settings.openaiKey;
+  if (settings.anthropicKey) process.env["ANTHROPIC_API_KEY"] = settings.anthropicKey;
+}
+
 let mainWindow: BrowserWindow | null = null;
 let activeBoxer: BoxerClient | null = null;
 
@@ -39,7 +63,12 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Apply saved API keys to env before any agent runs
+  const settings = await loadSettings();
+  if (settings.openaiKey && !process.env["OPENAI_API_KEY"]) process.env["OPENAI_API_KEY"] = settings.openaiKey;
+  if (settings.anthropicKey && !process.env["ANTHROPIC_API_KEY"]) process.env["ANTHROPIC_API_KEY"] = settings.anthropicKey;
+
   createWindow();
 
   app.on("activate", () => {
@@ -65,7 +94,14 @@ ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: str
   return { started: true };
 });
 
-/** Open file picker for brief or code paths. */
+/** Get persisted API key settings. */
+ipcMain.handle("get-settings", async () => loadSettings());
+
+/** Save API key settings and apply to process.env. */
+ipcMain.handle("save-settings", async (_event, settings: AppSettings) => {
+  await saveSettings(settings);
+});
+
 /** Write a brief file and return its path. */
 ipcMain.handle("write-brief", async (_event, content: string) => {
   const briefPath = `briefs/session-${Date.now()}.md`;

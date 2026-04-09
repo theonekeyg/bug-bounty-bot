@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { TrackState, PendingInstall } from "../src/types/index.js";
 
+export interface AppSettings {
+  openaiKey: string;
+  anthropicKey: string;
+}
+
 export interface BugBountyAPI {
   startResearch: (briefPath: string, boxerUrl: string, model: string) => Promise<{ started: boolean }>;
   writeBrief: (content: string) => Promise<string>;
@@ -14,6 +19,8 @@ export interface BugBountyAPI {
     install: PendingInstall,
   ) => Promise<{ approved: boolean; output?: string; exitCode?: number; error?: string }>;
   onResearchError: (cb: (err: string) => void) => void;
+  getSettings: () => Promise<AppSettings>;
+  saveSettings: (settings: AppSettings) => Promise<void>;
 }
 
 contextBridge.exposeInMainWorld("bugBounty", {
@@ -35,4 +42,7 @@ contextBridge.exposeInMainWorld("bugBounty", {
 
   onResearchError: (cb: (err: string) => void) =>
     ipcRenderer.on("research-error", (_event, err: string) => cb(err)),
+
+  getSettings: () => ipcRenderer.invoke("get-settings"),
+  saveSettings: (settings: AppSettings) => ipcRenderer.invoke("save-settings", settings),
 } satisfies BugBountyAPI);

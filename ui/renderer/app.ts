@@ -41,6 +41,8 @@ const permCommand = el("perm-command");
 const permApprove = el<HTMLButtonElement>("perm-approve");
 const permDeny = el<HTMLButtonElement>("perm-deny");
 const modelInput = el<HTMLInputElement>("model-name");
+const openaiKeyInput = el<HTMLInputElement>("openai-key");
+const anthropicKeyInput = el<HTMLInputElement>("anthropic-key");
 
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
@@ -393,6 +395,22 @@ function createModelPicker(): void {
 }
 
 createModelPicker();
+
+// ── API key persistence ──────────────────────────────────────────────────────
+
+void api.getSettings().then((s) => {
+  openaiKeyInput.value = s.openaiKey;
+  anthropicKeyInput.value = s.anthropicKey;
+});
+
+const saveApiKeys = (): void => {
+  void api.saveSettings({ openaiKey: openaiKeyInput.value, anthropicKey: anthropicKeyInput.value });
+};
+
+openaiKeyInput.addEventListener("blur", saveApiKeys);
+anthropicKeyInput.addEventListener("blur", saveApiKeys);
+
+// ── Form handlers ────────────────────────────────────────────────────────────
 
 el("pick-code").addEventListener("click", async () => {
   const path = await api.pickFile([{ name: "All", extensions: ["*"] }]);

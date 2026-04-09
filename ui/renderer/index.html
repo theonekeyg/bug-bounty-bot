@@ -288,6 +288,36 @@
       .btn-deny { background: var(--red); color: white; }
       .btn-deny:hover { filter: brightness(1.1); }
 
+      /* ── API Keys collapsible ── */
+      .api-keys-section { margin-bottom: 12px; }
+      .api-keys-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        cursor: pointer;
+        list-style: none;
+        padding: 4px 0;
+        user-select: none;
+      }
+      .api-keys-toggle::-webkit-details-marker { display: none; }
+      .api-keys-toggle::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        flex-shrink: 0;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(-45deg);
+        transition: transform 0.15s ease;
+      }
+      details[open] .api-keys-toggle::before { transform: rotate(45deg); }
+      .api-keys-body { padding-top: 8px; }
+
       /* ── Two-level model picker ── */
       .dropdown-option-chevron-right {
         width: 8px;
@@ -401,6 +431,20 @@
             <label>Boxer URL</label>
             <input type="text" id="boxer-url" value="http://localhost:8080" />
           </div>
+
+          <details class="api-keys-section">
+            <summary class="api-keys-toggle">API Keys</summary>
+            <div class="api-keys-body">
+              <div class="field">
+                <label>OpenAI API Key</label>
+                <input type="password" id="openai-key" placeholder="sk-..." autocomplete="off" />
+              </div>
+              <div class="field">
+                <label>Anthropic API Key</label>
+                <input type="password" id="anthropic-key" placeholder="sk-ant-..." autocomplete="off" />
+              </div>
+            </div>
+          </details>
 
           <button class="btn-primary" id="start-btn">Start Research</button>
         </div>
