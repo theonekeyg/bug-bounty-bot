@@ -287,6 +287,57 @@
       .btn-approve:hover { filter: brightness(1.1); }
       .btn-deny { background: var(--red); color: white; }
       .btn-deny:hover { filter: brightness(1.1); }
+
+      /* ── Two-level model picker ── */
+      .dropdown-option-chevron-right {
+        width: 8px;
+        height: 8px;
+        flex-shrink: 0;
+        border-right: 1.5px solid var(--text-soft);
+        border-bottom: 1.5px solid var(--text-soft);
+        transform: rotate(-45deg);
+      }
+      .dropdown-back {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: transparent;
+        border: none;
+        color: var(--text-soft);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: color 0.12s ease;
+      }
+      .dropdown-back:hover { color: var(--text); }
+      .dropdown-back-chevron {
+        width: 7px;
+        height: 7px;
+        flex-shrink: 0;
+        border-left: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(45deg) translateY(-1px);
+      }
+      .dropdown-divider {
+        height: 1px;
+        background: var(--border);
+        margin: 4px 6px;
+      }
+      .dropdown-option-icon {
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        border-radius: 6px;
+        background: rgba(255,255,255,0.06);
+      }
     </style>
   </head>
   <body>

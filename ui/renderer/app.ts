@@ -5,7 +5,15 @@
 
 import type { BugBountyAPI } from "../preload.js";
 import type { TrackState, PendingInstall } from "../../src/types/index.js";
-import { DEFAULT_MODEL, MODEL_OPTIONS } from "../../src/types/provider.js";
+import {
+  DEFAULT_MODEL,
+  PROVIDER_MODELS,
+  PROVIDERS,
+  type Provider,
+  type SupportedModel,
+  getModelProvider,
+  getModelInfo,
+} from "../../src/types/provider.js";
 
 declare const window: Window & { bugBounty: BugBountyAPI };
 
@@ -232,15 +240,159 @@ document.addEventListener("keydown", (event) => {
   for (const dropdown of dropdowns) dropdown.close();
 });
 
-createDropdown({
-  root: el("model-dropdown"),
-  input: modelInput,
-  trigger: el<HTMLButtonElement>("model-trigger"),
-  valueLabel: el("model-value"),
-  metaLabel: el("model-meta"),
-  menu: el("model-menu"),
-  options: MODEL_OPTIONS,
-});
+// ── Two-level model picker ──────────────────────────────────────────────────
+
+const PROVIDER_ICONS: Record<Provider, string> = {
+  openai: "◎",
+  anthropic: "✳",
+};
+
+function createModelPicker(): void {
+  const root = el("model-dropdown");
+  const trigger = el<HTMLButtonElement>("model-trigger");
+  const valueLabel = el("model-value");
+  const metaLabel = el("model-meta");
+  const menu = el("model-menu");
+
+  let panel: "providers" | "models" = "providers";
+  let browsingProvider: Provider | null = null;
+
+  const close = (): void => {
+    panel = "providers";
+    browsingProvider = null;
+    root.classList.remove("open");
+    menu.classList.add("hidden");
+    trigger.setAttribute("aria-expanded", "false");
+  };
+
+  const open = (): void => {
+    for (const d of dropdowns) d.close();
+    root.classList.add("open");
+    menu.classList.remove("hidden");
+    trigger.setAttribute("aria-expanded", "true");
+    renderMenu();
+  };
+
+  // Register in shared dropdowns set so outside-click closes it
+  dropdowns.add({ root, close, setOptions: () => undefined, setValue: () => undefined });
+
+  const updateTrigger = (): void => {
+    const model = (modelInput.value || DEFAULT_MODEL) as SupportedModel;
+    const info = getModelInfo(model);
+    const provider = getModelProvider(model);
+    valueLabel.textContent = info.label;
+    metaLabel.textContent = `${PROVIDERS.find((p) => p.value === provider)?.label ?? ""} · ${info.description}`;
+  };
+
+  const selectModel = (value: string): void => {
+    modelInput.value = value;
+    updateTrigger();
+    close();
+  };
+
+  const renderMenu = (): void => {
+    menu.innerHTML = "";
+
+    if (panel === "providers") {
+      for (const p of PROVIDERS) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "dropdown-option";
+        const currentProvider = getModelProvider((modelInput.value || DEFAULT_MODEL) as SupportedModel);
+        if (currentProvider === p.value) btn.classList.add("selected");
+
+        const icon = document.createElement("span");
+        icon.className = "dropdown-option-icon";
+        icon.textContent = PROVIDER_ICONS[p.value];
+
+        const main = document.createElement("span");
+        main.className = "dropdown-option-main";
+        const label = document.createElement("span");
+        label.className = "dropdown-option-label";
+        label.textContent = p.label;
+        main.appendChild(label);
+
+        const chevron = document.createElement("span");
+        chevron.className = "dropdown-option-chevron-right";
+        chevron.setAttribute("aria-hidden", "true");
+
+        btn.append(icon, main, chevron);
+        btn.addEventListener("click", () => {
+          panel = "models";
+          browsingProvider = p.value;
+          renderMenu();
+        });
+        menu.appendChild(btn);
+      }
+    } else if (browsingProvider !== null) {
+      // Back / header
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "dropdown-back";
+      const backChevron = document.createElement("span");
+      backChevron.className = "dropdown-back-chevron";
+      back.append(backChevron, PROVIDERS.find((p) => p.value === browsingProvider)?.label ?? "");
+      back.addEventListener("click", () => {
+        panel = "providers";
+        browsingProvider = null;
+        renderMenu();
+      });
+      menu.appendChild(back);
+
+      const divider = document.createElement("div");
+      divider.className = "dropdown-divider";
+      menu.appendChild(divider);
+
+      // Models for this provider
+      const models = PROVIDER_MODELS[browsingProvider];
+      for (const model of models) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "dropdown-option";
+        if (model.value === modelInput.value) btn.classList.add("selected");
+
+        const main = document.createElement("span");
+        main.className = "dropdown-option-main";
+        const labelEl = document.createElement("span");
+        labelEl.className = "dropdown-option-label";
+        labelEl.textContent = model.label;
+        const descEl = document.createElement("span");
+        descEl.className = "dropdown-option-description";
+        descEl.textContent = model.description;
+        main.append(labelEl, descEl);
+
+        const check = document.createElement("span");
+        check.className = "dropdown-option-check";
+        check.setAttribute("aria-hidden", "true");
+
+        btn.append(main, check);
+        btn.addEventListener("click", () => selectModel(model.value));
+        menu.appendChild(btn);
+      }
+    }
+  };
+
+  trigger.addEventListener("click", () => {
+    if (root.classList.contains("open")) { close(); return; }
+    open();
+  });
+
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    open();
+  });
+
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); close(); trigger.focus(); }
+  });
+
+  // Set initial value
+  if (!modelInput.value) modelInput.value = DEFAULT_MODEL;
+  updateTrigger();
+}
+
+createModelPicker();
 
 el("pick-code").addEventListener("click", async () => {
   const path = await api.pickFile([{ name: "All", extensions: ["*"] }]);
