@@ -11,6 +11,7 @@ import { readAllTrackStates, paths } from "../loop/state.js";
 import { BoxerClient } from "../sandbox/boxer.js";
 import type { TrackState } from "../types/state.js";
 import type { RunModelConfig } from "../types/provider.js";
+import { emitRuntimeEvent } from "../ipc/bus.js";
 
 const SYSTEM_PROMPT = `You are the Reporter in an autonomous security research system.
 
@@ -37,6 +38,14 @@ export async function runReporter(boxer: BoxerClient, modelConfig: RunModelConfi
   void boxer; // reserved for future tool use
   await mkdir(paths.outputDir(), { recursive: true });
   const states = await readAllTrackStates();
+  emitRuntimeEvent({
+    scope: "session",
+    kind: "stage_changed",
+    severity: "info",
+    title: "Generating final report",
+    detail: `${states.length} completed track(s) will be synthesised`,
+    stage: "Generating Report",
+  });
 
   const result = await runAgent({
     modelConfig,

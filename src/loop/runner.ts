@@ -11,6 +11,7 @@
  */
 
 import { appendProgress } from "./state.js";
+import { emitRuntimeEvent } from "../ipc/bus.js";
 
 export interface LoopIteration {
   done: boolean;
@@ -23,6 +24,7 @@ export interface RalphLoopOptions {
   maxIterations?: number;
   delayMs?: number;
   onIteration?: (iteration: number) => void;
+  scope?: "session" | "track";
 }
 
 /**
@@ -36,7 +38,7 @@ export async function runRalphLoop(
   agentFn: () => Promise<LoopIteration>,
   opts: RalphLoopOptions,
 ): Promise<void> {
-  const { trackId, label, maxIterations = 50, delayMs = 1000 } = opts;
+  const { trackId, label, maxIterations = 50, delayMs = 1000, scope = "track" } = opts;
   let iteration = 0;
 
   await appendProgress(trackId, `[loop] Starting "${label}" (maxIterations=${maxIterations})`);
@@ -51,6 +53,14 @@ export async function runRalphLoop(
     } catch (err) {
       const msg = `[loop] Iteration ${iteration} threw: ${String(err)}`;
       await appendProgress(trackId, msg);
+      emitRuntimeEvent({
+        scope,
+        kind: "retrying",
+        severity: "warning",
+        trackId: scope === "track" ? trackId : undefined,
+        title: `${label} iteration ${iteration} failed`,
+        detail: String(err),
+      });
       console.error(msg);
       // Continue — one bad iteration should not kill the loop
       await sleep(delayMs * 2);
@@ -60,6 +70,14 @@ export async function runRalphLoop(
     if (result.done) {
       const msg = `[loop] "${label}" completed after ${iteration} iteration(s). Reason: ${result.reason ?? "done"}`;
       await appendProgress(trackId, msg);
+      emitRuntimeEvent({
+        scope,
+        kind: "session_completed",
+        severity: "success",
+        trackId: scope === "track" ? trackId : undefined,
+        title: `${label} completed`,
+        detail: result.reason ?? "done",
+      });
       console.log(msg);
       return;
     }
@@ -69,6 +87,14 @@ export async function runRalphLoop(
 
   const msg = `[loop] "${label}" hit maxIterations (${maxIterations}). Stopping.`;
   await appendProgress(trackId, msg);
+  emitRuntimeEvent({
+    scope,
+    kind: "error",
+    severity: "error",
+    trackId: scope === "track" ? trackId : undefined,
+    title: `${label} stopped after hitting max iterations`,
+    detail: `maxIterations=${maxIterations}`,
+  });
   console.warn(msg);
 }
 

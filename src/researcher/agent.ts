@@ -20,6 +20,7 @@ import { BoxerClient } from "../sandbox/boxer.js";
 import { runRalphLoop, type LoopIteration } from "../loop/runner.js";
 import type { Brief } from "../types/index.js";
 import type { RunModelConfig } from "../types/provider.js";
+import { emitRuntimeEvent } from "../ipc/bus.js";
 
 const SYSTEM_PROMPT = `You are a Researcher in an autonomous security research system.
 
@@ -66,6 +67,15 @@ export async function runResearcher(
   boxer: BoxerClient,
   modelConfig: RunModelConfig,
 ): Promise<void> {
+  emitRuntimeEvent({
+    scope: "track",
+    kind: "stage_changed",
+    severity: "info",
+    trackId,
+    title: `Track ${trackId} starting`,
+    detail: "Preparing workspace and reading track state",
+    stage: "Preparing Track",
+  });
   // Pre-create a Boxer workspace for this track so Claude can reference it
   let workspaceId: string | undefined;
   try {
@@ -73,8 +83,26 @@ export async function runResearcher(
     workspaceId = ws.workspaceId;
     const state = await readTrackState(trackId);
     if (state) await writeTrackState({ ...state, workspaceId });
+    emitRuntimeEvent({
+      scope: "track",
+      kind: "stage_changed",
+      severity: "info",
+      trackId,
+      title: "Workspace ready",
+      detail: workspaceId,
+      stage: "Reading Hypothesis",
+    });
   } catch {
     console.warn(`[researcher:${trackId}] Boxer workspace creation failed — continuing without`);
+    emitRuntimeEvent({
+      scope: "track",
+      kind: "error",
+      severity: "warning",
+      trackId,
+      title: "Workspace creation failed",
+      detail: "Continuing without persistent Boxer workspace",
+      stage: "Reading Hypothesis",
+    });
   }
 
   await runRalphLoop(
@@ -85,12 +113,31 @@ export async function runResearcher(
         return { done: true, reason: state.status };
       }
 
+      emitRuntimeEvent({
+        scope: "track",
+        kind: "stage_changed",
+        severity: "info",
+        trackId,
+        title: "Reading hypothesis and prior progress",
+        detail: state.hypothesis,
+        stage: "Reading Hypothesis",
+      });
+
       const hypothesis = await readFile(paths.hypothesisMd(trackId), "utf-8");
       const progress = await readProgress(trackId);
       const findings = existsSync(paths.findingsMd(trackId))
         ? await readFile(paths.findingsMd(trackId), "utf-8")
         : "";
 
+      emitRuntimeEvent({
+        scope: "track",
+        kind: "stage_changed",
+        severity: "info",
+        trackId,
+        title: "Planning next investigation step",
+        detail: hypothesis.split("\n")[0] ?? state.hypothesis,
+        stage: "Planning Next Step",
+      });
       const result = await runAgent({
         modelConfig,
         systemPrompt: SYSTEM_PROMPT,
@@ -112,20 +159,59 @@ export async function runResearcher(
       if (response.includes("STATUS:found")) {
         await updateTrackStatus(trackId, "found");
         await appendProgress(trackId, "[runner] Status → found");
+        emitRuntimeEvent({
+          scope: "track",
+          kind: "track_status_changed",
+          severity: "success",
+          trackId,
+          title: "Track concluded with a finding",
+          detail: "Vulnerability evidence captured",
+          stage: "Done",
+          status: "found",
+        });
         return { done: true, reason: "found" };
       }
       if (response.includes("STATUS:disproven")) {
         await updateTrackStatus(trackId, "disproven");
         await appendProgress(trackId, "[runner] Status → disproven");
+        emitRuntimeEvent({
+          scope: "track",
+          kind: "track_status_changed",
+          severity: "info",
+          trackId,
+          title: "Track disproven",
+          detail: "Hypothesis did not hold under investigation",
+          stage: "Done",
+          status: "disproven",
+        });
         return { done: true, reason: "disproven" };
       }
       const blocked = response.match(/STATUS:blocked:(.+)/);
       if (blocked) {
         await updateTrackStatus(trackId, "blocked");
         await appendProgress(trackId, `[runner] Status → blocked: ${blocked[1] ?? ""}`);
+        emitRuntimeEvent({
+          scope: "track",
+          kind: "track_status_changed",
+          severity: "warning",
+          trackId,
+          title: "Track blocked",
+          detail: blocked[1]?.trim() || "Blocked by runtime condition",
+          stage: "Blocked",
+          status: "blocked",
+        });
         return { done: true, reason: `blocked: ${blocked[1] ?? ""}` };
       }
 
+      emitRuntimeEvent({
+        scope: "track",
+        kind: "waiting",
+        severity: "info",
+        trackId,
+        title: "Waiting for next researcher iteration",
+        detail: "The track will continue automatically",
+        stage: "Investigating",
+      });
       return { done: false };
     },
     { trackId, label: `Researcher:${trackId}`, maxIterations: 50, delayMs: 2000 },

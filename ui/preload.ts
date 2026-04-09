@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { TrackState, PendingInstall } from "../src/types/index.js";
+import type { TrackState, PendingInstall, RuntimeEvent } from "../src/types/index.js";
 
 export interface AppSettings {
   openaiKey: string;
@@ -19,6 +19,7 @@ export interface BugBountyAPI {
   ) => Promise<{ approved: boolean; output?: string; exitCode?: number; error?: string }>;
   onResearchError: (cb: (err: string) => void) => void;
   onResearchLog: (cb: (trackId: string, text: string) => void) => void;
+  onRuntimeEvent: (cb: (event: RuntimeEvent) => void) => void;
   getSettings: () => Promise<AppSettings>;
   saveSettings: (settings: AppSettings) => Promise<void>;
 }
@@ -47,6 +48,9 @@ contextBridge.exposeInMainWorld("bugBounty", {
     ipcRenderer.on("research-log", (_event, { trackId, text }: { trackId: string; text: string }) =>
       cb(trackId, text),
     ),
+
+  onRuntimeEvent: (cb: (event: RuntimeEvent) => void) =>
+    ipcRenderer.on("runtime-event", (_event, event: RuntimeEvent) => cb(event)),
 
   getSettings: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke("save-settings", settings),

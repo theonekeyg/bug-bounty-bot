@@ -4,7 +4,7 @@
  */
 
 import type { BugBountyAPI } from "../preload.js";
-import type { TrackState, PendingInstall } from "../../src/types/index.js";
+import type { TrackState, PendingInstall, RuntimeEvent } from "../../src/types/index.js";
 import {
   DEFAULT_MODEL,
   PROVIDER_MODELS,
@@ -41,6 +41,13 @@ const boxerUrlInput = el<HTMLInputElement>("boxer-url");
 const tracksContainer = el("tracks-container");
 const welcome = el("welcome");
 const progressView = el("progress-view");
+const sessionStagePill = el("session-stage-pill");
+const sessionUpdatedAt = el("session-updated-at");
+const sessionHeadline = el("session-headline");
+const sessionDetail = el("session-detail");
+const activityTab = el<HTMLButtonElement>("activity-tab");
+const rawLogTab = el<HTMLButtonElement>("raw-log-tab");
+const activityFeed = el("activity-feed");
 const progressLog = el("progress-log");
 const activeTitle = el("active-track-title");
 const activeStatusDot = el("active-status-dot");
@@ -55,6 +62,14 @@ const openaiKeyInput = el<HTMLInputElement>("openai-key");
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
+let activeView: "activity" | "raw" = "activity";
+let runtimeEvents: RuntimeEvent[] = [];
+let sessionStage = "Starting";
+let sessionHeadlineText = "Preparing session...";
+let sessionDetailText = "Live runtime updates will appear here.";
+let sessionLastUpdated: string | null = null;
+const trackHeadlineById = new Map<string, string>();
+const trackStageById = new Map<string, string>();
 
 function setSessionConfigLocked(locked: boolean): void {
   targetInput.disabled = locked;
@@ -66,6 +81,117 @@ function setSessionConfigLocked(locked: boolean): void {
   contextInput.disabled = locked;
   modelTrigger.disabled = locked;
   boxerUrlInput.disabled = locked;
+}
+
+function formatEventTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function resetRuntimeState(): void {
+  runtimeEvents = [];
+  sessionStage = "Starting";
+  sessionHeadlineText = "Preparing session...";
+  sessionDetailText = "Live runtime updates will appear here.";
+  sessionLastUpdated = null;
+  trackHeadlineById.clear();
+  trackStageById.clear();
+  renderSessionSummary();
+  renderActivityFeed();
+}
+
+function setActiveView(view: "activity" | "raw"): void {
+  activeView = view;
+  activityTab.classList.toggle("active", view === "activity");
+  rawLogTab.classList.toggle("active", view === "raw");
+  activityFeed.classList.toggle("hidden", view !== "activity");
+  progressLog.classList.toggle("hidden", view !== "raw");
+}
+
+function renderSessionSummary(): void {
+  sessionStagePill.textContent = sessionStage;
+  sessionHeadline.textContent = sessionHeadlineText;
+  sessionDetail.textContent = sessionDetailText;
+  sessionUpdatedAt.textContent = sessionLastUpdated
+    ? `Last update ${formatEventTime(sessionLastUpdated)}`
+    : "No activity yet";
+}
+
+function getVisibleRuntimeEvents(): RuntimeEvent[] {
+  if (!activeTrackId || activeTrackId === "orchestrator") {
+    return runtimeEvents.filter((event) => event.scope === "session" || event.trackId === "orchestrator" || !event.trackId);
+  }
+  return runtimeEvents.filter((event) => event.scope === "session" || event.trackId === activeTrackId);
+}
+
+function renderActivityFeed(): void {
+  const visibleEvents = getVisibleRuntimeEvents().slice(-80);
+  activityFeed.innerHTML = "";
+
+  if (visibleEvents.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "activity-empty";
+    empty.textContent = "Structured runtime activity will appear here as the agent progresses.";
+    activityFeed.appendChild(empty);
+    return;
+  }
+
+  for (const event of visibleEvents) {
+    const row = document.createElement("div");
+    row.className = "activity-item";
+
+    const time = document.createElement("div");
+    time.className = "activity-time";
+    time.textContent = formatEventTime(event.timestamp);
+
+    const body = document.createElement("div");
+    body.className = "activity-body";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "activity-title-row";
+
+    const kind = document.createElement("span");
+    kind.className = `activity-kind ${event.severity}`;
+    kind.textContent = event.kind.replaceAll("_", " ");
+
+    const title = document.createElement("div");
+    title.className = "activity-title";
+    title.textContent = event.trackId ? `${event.trackId}: ${event.title}` : event.title;
+
+    titleRow.append(kind, title);
+    body.appendChild(titleRow);
+
+    const detail = document.createElement("div");
+    detail.className = "activity-detail";
+    detail.textContent = event.detail ?? event.stage ?? "";
+    body.appendChild(detail);
+
+    row.append(time, body);
+    activityFeed.appendChild(row);
+  }
+
+  activityFeed.scrollTop = activityFeed.scrollHeight;
+}
+
+function applyRuntimeEvent(event: RuntimeEvent): void {
+  runtimeEvents.push(event);
+
+  if (event.scope === "session") {
+    sessionStage = event.stage ?? sessionStage;
+    sessionHeadlineText = event.title;
+    sessionDetailText = event.detail ?? event.stage ?? sessionDetailText;
+    sessionLastUpdated = event.timestamp;
+  }
+
+  if (event.trackId) {
+    trackHeadlineById.set(event.trackId, event.title);
+    if (event.stage) {
+      trackStageById.set(event.trackId, event.stage);
+    }
+  }
+
+  renderSessionSummary();
+  renderActivityFeed();
 }
 
 type DropdownController = {
@@ -417,6 +543,11 @@ function createModelPicker(): void {
 }
 
 createModelPicker();
+setActiveView("activity");
+resetRuntimeState();
+
+activityTab.addEventListener("click", () => setActiveView("activity"));
+rawLogTab.addEventListener("click", () => setActiveView("raw"));
 
 // ── API key persistence ──────────────────────────────────────────────────────
 
@@ -472,6 +603,11 @@ startBtn.addEventListener("click", async () => {
   startBtn.disabled = true;
   startBtn.textContent = "Starting...";
   setSessionConfigLocked(true);
+  resetRuntimeState();
+  activeTrackId = "orchestrator";
+  activeTitle.textContent = "orchestrator";
+  activeStatusDot.className = "status-dot running";
+  progressLog.textContent = "";
 
   await api.startResearch(briefPath, boxerUrl, model);
   startPolling();
@@ -526,7 +662,7 @@ function renderTracks(states: TrackState[]): void {
         <span class="track-id">orchestrator</span>
         <span style="font-size:11px;color:var(--muted)">running</span>
       </div>
-      <div class="track-hypo">Mapping attack surface…</div>
+      <div class="track-hypo">${sessionHeadlineText}</div>
     `;
     tracksContainer.appendChild(card);
     if (!activeTrackId) {
@@ -534,6 +670,7 @@ function renderTracks(states: TrackState[]): void {
       activeTitle.textContent = "orchestrator";
       activeStatusDot.className = "status-dot running";
     }
+    renderActivityFeed();
     return;
   }
 
@@ -548,26 +685,33 @@ function renderTracks(states: TrackState[]): void {
         <span class="track-id">${state.trackId}</span>
         <span style="font-size:11px;color:var(--muted)">${state.status}</span>
       </div>
-      <div class="track-hypo">${state.hypothesis}</div>
+      <div class="track-hypo">${trackHeadlineById.get(state.trackId) ?? trackStageById.get(state.trackId) ?? state.hypothesis}</div>
     `;
     card.addEventListener("click", () => selectTrack(state));
     tracksContainer.appendChild(card);
   }
 
   const first = states[0];
-  if (!activeTrackId && first) selectTrack(first);
+  if ((!activeTrackId || activeTrackId === "orchestrator") && first) void selectTrack(first);
 
   if (activeTrackId) {
     const active = states.find((s) => s.trackId === activeTrackId);
     if (active) {
       activeStatusDot.className = `status-dot ${active.status}`;
+      activeTitle.textContent = trackStageById.get(active.trackId)
+        ? `${active.trackId} · ${trackStageById.get(active.trackId)}`
+        : active.trackId;
     }
   }
+
+  renderActivityFeed();
 }
 
 async function selectTrack(state: TrackState): Promise<void> {
   activeTrackId = state.trackId;
-  activeTitle.textContent = state.trackId;
+  activeTitle.textContent = trackStageById.get(state.trackId)
+    ? `${state.trackId} · ${trackStageById.get(state.trackId)}`
+    : state.trackId;
   activeStatusDot.className = `status-dot ${state.status}`;
 
   const content = await api.readFile(`state/research/${state.trackId}/progress.md`);
@@ -576,6 +720,7 @@ async function selectTrack(state: TrackState): Promise<void> {
 
   const states = await api.getProgress();
   renderTracks(states);
+  renderActivityFeed();
 }
 
 function showPermissionPrompt(install: PendingInstall): void {
@@ -607,10 +752,23 @@ api.onResearchLog((trackId: string, text: string) => {
   }
 });
 
+api.onRuntimeEvent((event: RuntimeEvent) => {
+  applyRuntimeEvent(event);
+
+  if (activeTrackId === "orchestrator" && event.scope === "session") {
+    activeTitle.textContent = `orchestrator · ${event.stage ?? sessionStage}`;
+  }
+});
+
 api.onResearchError((err: string) => {
   console.error("Research error:", err);
   startBtn.disabled = false;
   startBtn.textContent = "Start Research";
   setSessionConfigLocked(false);
+  sessionStage = "Failed";
+  sessionHeadlineText = "Research session failed";
+  sessionDetailText = err;
+  sessionLastUpdated = new Date().toISOString();
+  renderSessionSummary();
   alert(`Research error: ${err}`);
 });

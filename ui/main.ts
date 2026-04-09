@@ -14,6 +14,7 @@ import { readAllTrackStates, resetSessionState } from "../src/loop/state.js";
 import type { PendingInstall } from "../src/types/state.js";
 import { PendingInstallSchema } from "../src/types/state.js";
 import { RunModelConfigSchema } from "../src/types/provider.js";
+import type { RuntimeEvent } from "../src/types/runtime.js";
 
 export interface AppSettings {
   openaiKey: string;
@@ -66,6 +67,10 @@ function createWindow(): void {
 // Forward streaming log chunks from agents → renderer
 ipcBus.on("research-log", (event: ResearchLogEvent) => {
   mainWindow?.webContents.send("research-log", event);
+});
+
+ipcBus.on("runtime-event", (event: RuntimeEvent) => {
+  mainWindow?.webContents.send("runtime-event", event);
 });
 
 app.whenReady().then(async () => {

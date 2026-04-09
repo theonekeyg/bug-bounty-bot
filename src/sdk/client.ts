@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import OpenAI from "openai";
 import type { RunModelConfig, SupportedModel } from "../types/provider.js";
 import { getModelProvider } from "../types/provider.js";
-import { ipcBus } from "../ipc/bus.js";
+import { ipcBus, emitRuntimeEvent } from "../ipc/bus.js";
 import { appendProgress } from "../loop/state.js";
 
 let _openai: OpenAI | null = null;
@@ -48,6 +48,15 @@ function startHeartbeat(opts: AgentRunOptions): () => void {
     const note = `[run] Still waiting for model output... (${elapsedSec}s elapsed)`;
 
     emitResearchLog(trackId, `\n${note}\n`);
+    emitRuntimeEvent({
+      scope: trackId === "orchestrator" ? "session" : "track",
+      kind: "heartbeat",
+      severity: "info",
+      trackId: trackId === "orchestrator" ? undefined : trackId,
+      title: "Still waiting for model output",
+      detail: `${elapsedSec}s elapsed`,
+      stage: "Waiting For Model",
+    });
     if (opts.persistHeartbeats) {
       void appendProgress(trackId, note);
     }
@@ -60,9 +69,19 @@ function startHeartbeat(opts: AgentRunOptions): () => void {
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const provider = getModelProvider(opts.modelConfig.model as SupportedModel);
   const stopHeartbeat = startHeartbeat(opts);
+  let announcedOutput = false;
 
   try {
     if (provider === "openai") {
+      emitRuntimeEvent({
+        scope: opts.trackId === "orchestrator" ? "session" : "track",
+        kind: "waiting",
+        severity: "info",
+        trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+        title: "Submitting request to OpenAI",
+        detail: opts.modelConfig.model,
+        stage: "Waiting For Model",
+      });
       if (!process.env["OPENAI_API_KEY"]) throw new Error("OPENAI_API_KEY environment variable is not set.");
 
       const response = await getOpenAI().responses.create({
@@ -91,6 +110,16 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       },
     });
 
+    emitRuntimeEvent({
+      scope: opts.trackId === "orchestrator" ? "session" : "track",
+      kind: "waiting",
+      severity: "info",
+      trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+      title: "Submitting request to Claude Code",
+      detail: opts.modelConfig.model,
+      stage: "Waiting For Model",
+    });
+
     for await (const message of stream) {
       // Stream text deltas to the UI in real time
       if (message.type === "stream_event") {
@@ -99,6 +128,18 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           event.type === "content_block_delta" &&
           event.delta.type === "text_delta"
         ) {
+          if (!announcedOutput) {
+            emitRuntimeEvent({
+              scope: opts.trackId === "orchestrator" ? "session" : "track",
+              kind: "stage_changed",
+              severity: "info",
+              trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+              title: "Model is producing output",
+              detail: opts.modelConfig.model,
+              stage: "Generating Output",
+            });
+            announcedOutput = true;
+          }
           emitResearchLog(opts.trackId, event.delta.text);
         }
       }

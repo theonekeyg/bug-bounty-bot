@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from "events";
+import type { RuntimeEvent, RuntimeEventInput } from "../types/runtime.js";
 
 export interface ResearchLogEvent {
   trackId: string;
@@ -12,3 +13,12 @@ export interface ResearchLogEvent {
 
 export const ipcBus = new EventEmitter();
 ipcBus.setMaxListeners(100); // many parallel researcher agents may emit
+
+export function emitRuntimeEvent(event: RuntimeEventInput): void {
+  const runtimeEvent: RuntimeEvent = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: new Date().toISOString(),
+    ...event,
+  };
+  ipcBus.emit("runtime-event", runtimeEvent);
+}
