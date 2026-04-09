@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ToolDefinition, ToolResult } from "../types/index.js";
+import { emitRuntimeEvent } from "../ipc/bus.js";
 
 // ── Web search ────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,24 @@ export const fetchUrlTool: ToolDefinition<z.infer<typeof FetchUrlInput>> = {
         body: body ?? undefined,
         signal: AbortSignal.timeout(30_000),
       });
+
+      // Check for API limit responses
+      if (res.status === 429 || res.status === 402) {
+        const errorText = await res.text();
+        emitRuntimeEvent({
+          scope: "track",
+          kind: "error",
+          severity: "error",
+          title: "API limit reached",
+          detail: `HTTP ${res.status}: Rate limit or quota exceeded while fetching ${url}`,
+          stage: "API Limit",
+        });
+        return {
+          success: false,
+          output: "",
+          error: `API limit reached (HTTP ${res.status}): ${errorText}`,
+        };
+      }
 
       const contentType = res.headers.get("content-type") ?? "";
       const buffer = await res.arrayBuffer();

@@ -149,6 +149,13 @@ function summarizeTrack(state: TrackState): string {
 function getSessionHealth(): { label: string; tone: "" | "warning" | "error" } {
   const latest = runtimeEvents.at(-1);
   if (pendingInstall) return { label: "Needs approval", tone: "warning" };
+  
+  // Check for API limit errors specifically
+  const apiLimitEvent = runtimeEvents.find(event => 
+    event.kind === "error" && event.title === "API limit reached"
+  );
+  if (apiLimitEvent) return { label: "API limit reached", tone: "error" };
+  
   if (latest?.severity === "error") return { label: "Attention needed", tone: "error" };
   if (latest?.severity === "warning") return { label: "Watching closely", tone: "warning" };
   return { label: "Healthy", tone: "" };
@@ -384,6 +391,25 @@ function renderActionCenter(): void {
     return;
   }
 
+  // Check for API limit errors first (highest priority)
+  const apiLimitEvent = runtimeEvents.find(event => 
+    event.kind === "error" && event.title === "API limit reached"
+  );
+  if (apiLimitEvent) {
+    const item = document.createElement("div");
+    item.className = "action-center-item api-limit-alert";
+    item.innerHTML = `
+      <strong>🚫 API Limit Reached</strong>
+      <p>${apiLimitEvent.detail ?? apiLimitEvent.title}</p>
+      <div class="api-limit-actions">
+        <button onclick="window.open('https://platform.openai.com/account/usage', '_blank')" class="api-limit-btn">Check OpenAI Usage</button>
+        <button onclick="window.open('https://console.anthropic.com/settings/plans', '_blank')" class="api-limit-btn">Check Anthropic Usage</button>
+      </div>
+    `;
+    actionCenter.appendChild(item);
+    return;
+  }
+
   const latest = runtimeEvents.at(-1);
   if (latest?.severity === "error") {
     const item = document.createElement("div");
@@ -401,6 +427,11 @@ function renderActionCenter(): void {
 
 function applyRuntimeEvent(event: RuntimeEvent): void {
   runtimeEvents.push(event);
+
+  // Debug logging for API limit events
+  if (event.kind === "error" && event.title === "API limit reached") {
+    console.log("🚫 API LIMIT EVENT DETECTED:", event);
+  }
 
   if (event.kind === "session_started" && !sessionStartedAt) {
     sessionStartedAt = event.timestamp;
@@ -1008,6 +1039,22 @@ api.onRuntimeEvent((event: RuntimeEvent) => {
     activeTitle.textContent = `orchestrator · ${event.stage ?? sessionStage}`;
   }
 });
+
+// Add manual API limit test for debugging
+(window as any).testApiLimit = () => {
+  const testEvent: RuntimeEvent = {
+    id: `test-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    scope: "session",
+    kind: "error",
+    severity: "error",
+    title: "API limit reached",
+    detail: "Test API limit detection - this should show red alert",
+    stage: "API Limit",
+  };
+  applyRuntimeEvent(testEvent);
+  console.log("🧪 Test API limit event sent");
+};
 
 api.onResearchError((err: string) => {
   console.error("Research error:", err);

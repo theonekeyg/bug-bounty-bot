@@ -7,14 +7,14 @@ import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import { join } from "path";
 import { readFile, readdir, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
-import { BoxerClient } from "../src/sandbox/boxer.js";
-import { runOrchestrator } from "../src/orchestrator/agent.js";
-import { ipcBus, type ResearchLogEvent } from "../src/ipc/bus.js";
-import { readAllTrackStates, resetSessionState } from "../src/loop/state.js";
-import type { PendingInstall } from "../src/types/state.js";
-import { PendingInstallSchema } from "../src/types/state.js";
-import { RunModelConfigSchema } from "../src/types/provider.js";
-import type { RuntimeEvent } from "../src/types/runtime.js";
+import { BoxerClient } from "../src/sandbox/boxer.ts";
+import { runOrchestrator } from "../src/orchestrator/agent.ts";
+import { ipcBus, type ResearchLogEvent } from "../src/ipc/bus.ts";
+import { readAllTrackStates, resetSessionState } from "../src/loop/state.ts";
+import type { PendingInstall } from "../src/types/state.ts";
+import { PendingInstallSchema } from "../src/types/state.ts";
+import { RunModelConfigSchema } from "../src/types/provider.ts";
+import type { RuntimeEvent } from "../src/types/runtime.ts";
 
 export interface AppSettings {
   openaiKey: string;

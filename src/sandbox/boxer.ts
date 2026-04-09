@@ -19,6 +19,7 @@ import {
   Workspace,
   WorkspaceSchema,
 } from "./types.js";
+import { emitRuntimeEvent } from "../ipc/bus.js";
 
 export class BoxerClient {
   private readonly baseUrl: string;
@@ -117,7 +118,21 @@ export class BoxerClient {
 
   private async get(path: string): Promise<unknown> {
     const res = await fetch(`${this.baseUrl}${path}`);
-    if (!res.ok) throw new BoxerError(`GET ${path}: ${res.status} ${await res.text()}`);
+    if (!res.ok) {
+      if (res.status === 429 || res.status === 402) {
+        const errorText = await res.text();
+        emitRuntimeEvent({
+          scope: "session",
+          kind: "error",
+          severity: "error",
+          title: "API limit reached",
+          detail: `Boxer API rate limit exceeded (HTTP ${res.status})`,
+          stage: "API Limit",
+        });
+        throw new BoxerError(`API limit reached (HTTP ${res.status}): ${errorText}`);
+      }
+      throw new BoxerError(`GET ${path}: ${res.status} ${await res.text()}`);
+    }
     return res.json();
   }
 
@@ -127,13 +142,41 @@ export class BoxerClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new BoxerError(`POST ${path}: ${res.status} ${await res.text()}`);
+    if (!res.ok) {
+      if (res.status === 429 || res.status === 402) {
+        const errorText = await res.text();
+        emitRuntimeEvent({
+          scope: "session",
+          kind: "error",
+          severity: "error",
+          title: "API limit reached",
+          detail: `Boxer API rate limit exceeded (HTTP ${res.status})`,
+          stage: "API Limit",
+        });
+        throw new BoxerError(`API limit reached (HTTP ${res.status}): ${errorText}`);
+      }
+      throw new BoxerError(`POST ${path}: ${res.status} ${await res.text()}`);
+    }
     return res.json();
   }
 
   private async delete(path: string): Promise<void> {
     const res = await fetch(`${this.baseUrl}${path}`, { method: "DELETE" });
-    if (!res.ok) throw new BoxerError(`DELETE ${path}: ${res.status} ${await res.text()}`);
+    if (!res.ok) {
+      if (res.status === 429 || res.status === 402) {
+        const errorText = await res.text();
+        emitRuntimeEvent({
+          scope: "session",
+          kind: "error",
+          severity: "error",
+          title: "API limit reached",
+          detail: `Boxer API rate limit exceeded (HTTP ${res.status})`,
+          stage: "API Limit",
+        });
+        throw new BoxerError(`API limit reached (HTTP ${res.status}): ${errorText}`);
+      }
+      throw new BoxerError(`DELETE ${path}: ${res.status} ${await res.text()}`);
+    }
   }
 }
 
