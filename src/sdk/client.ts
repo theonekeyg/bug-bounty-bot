@@ -1,19 +1,13 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import OpenAI from "openai";
 import type { RunModelConfig, SupportedModel } from "../types/provider.js";
 import { getModelProvider } from "../types/provider.js";
 
 let _openai: OpenAI | null = null;
-let _anthropic: Anthropic | null = null;
 
 function getOpenAI(): OpenAI {
   if (!_openai) _openai = new OpenAI({ apiKey: process.env["OPENAI_API_KEY"] });
   return _openai;
-}
-
-function getAnthropic(): Anthropic {
-  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env["ANTHROPIC_API_KEY"] });
-  return _anthropic;
 }
 
 export interface AgentRunOptions {
@@ -46,16 +40,31 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
     return { result: response.output_text?.trim() ?? "", costUsd: 0, turns: 1 };
   }
 
-  // Anthropic
-  if (!process.env["ANTHROPIC_API_KEY"]) throw new Error("ANTHROPIC_API_KEY environment variable is not set.");
-
-  const response = await getAnthropic().messages.create({
-    model: opts.modelConfig.model,
-    max_tokens: 8192,
-    system: opts.systemPrompt,
-    messages: [{ role: "user", content: opts.prompt }],
+  // Anthropic — uses Claude Code subscription via the agent SDK (no API key needed).
+  // Requires `claude auth login` to have been run once on this machine.
+  const stream = query({
+    prompt: opts.prompt,
+    options: {
+      systemPrompt: opts.systemPrompt,
+      model: opts.modelConfig.model,
+      allowedTools: [],
+      allowDangerouslySkipPermissions: true,
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+    },
   });
 
-  const block = response.content.find((b) => b.type === "text");
-  return { result: block?.type === "text" ? block.text.trim() : "", costUsd: 0, turns: 1 };
+  for await (const message of stream) {
+    if (message.type === "result") {
+      if (message.subtype !== "success") {
+        throw new Error(`Claude agent error (${message.subtype}): ${message.errors.join(", ")}`);
+      }
+      return {
+        result: message.result.trim(),
+        costUsd: message.total_cost_usd,
+        turns: message.num_turns,
+      };
+    }
+  }
+
+  throw new Error("Claude agent stream ended without a result message");
 }

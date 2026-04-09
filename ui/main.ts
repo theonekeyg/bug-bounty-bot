@@ -16,7 +16,6 @@ import { RunModelConfigSchema } from "../src/types/provider.js";
 
 export interface AppSettings {
   openaiKey: string;
-  anthropicKey: string;
 }
 
 const SETTINGS_FILE = () => join(app.getPath("userData"), "settings.json");
@@ -25,9 +24,9 @@ async function loadSettings(): Promise<AppSettings> {
   try {
     const raw = await readFile(SETTINGS_FILE(), "utf-8");
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    return { openaiKey: parsed.openaiKey ?? "", anthropicKey: parsed.anthropicKey ?? "" };
+    return { openaiKey: parsed.openaiKey ?? "" };
   } catch {
-    return { openaiKey: "", anthropicKey: "" };
+    return { openaiKey: "" };
   }
 }
 
@@ -35,7 +34,6 @@ async function saveSettings(settings: AppSettings): Promise<void> {
   await writeFile(SETTINGS_FILE(), JSON.stringify(settings, null, 2), "utf-8");
   // Immediately apply to env so running agents pick them up
   if (settings.openaiKey) process.env["OPENAI_API_KEY"] = settings.openaiKey;
-  if (settings.anthropicKey) process.env["ANTHROPIC_API_KEY"] = settings.anthropicKey;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -68,7 +66,6 @@ app.whenReady().then(async () => {
   // Apply saved API keys to env before any agent runs
   const settings = await loadSettings();
   if (settings.openaiKey && !process.env["OPENAI_API_KEY"]) process.env["OPENAI_API_KEY"] = settings.openaiKey;
-  if (settings.anthropicKey && !process.env["ANTHROPIC_API_KEY"]) process.env["ANTHROPIC_API_KEY"] = settings.anthropicKey;
 
   createWindow();
 

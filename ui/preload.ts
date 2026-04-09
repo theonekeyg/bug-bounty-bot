@@ -3,7 +3,6 @@ import type { TrackState, PendingInstall } from "../src/types/index.js";
 
 export interface AppSettings {
   openaiKey: string;
-  anthropicKey: string;
 }
 
 export interface BugBountyAPI {

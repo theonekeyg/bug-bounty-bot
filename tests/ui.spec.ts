@@ -113,4 +113,50 @@ test.describe("Bug Bounty Agent UI", () => {
     const hasFeedback = btnText !== "Start Research" || btnDisabled || dialogMessages.length > 0;
     expect(hasFeedback, `No feedback shown. btn="${btnText}" disabled=${btnDisabled} dialogs=${JSON.stringify(dialogMessages)}`).toBe(true);
   });
+
+  test("model picker opens and shows provider list", async () => {
+    await page.locator("#model-trigger").click();
+    await expect(page.locator("#model-menu")).toBeVisible();
+    await expect(page.locator("#model-menu").getByText("OpenAI")).toBeVisible();
+    await expect(page.locator("#model-menu").getByText("Anthropic")).toBeVisible();
+  });
+
+  test("model picker: clicking OpenAI shows OpenAI models", async () => {
+    await page.locator("#model-trigger").click();
+    await page.locator("#model-menu").getByText("OpenAI").click();
+    await expect(page.locator("#model-menu").getByText("GPT-5.4 Mini")).toBeVisible();
+    await expect(page.locator("#model-menu").getByText("GPT-5.3 Codex")).toBeVisible();
+  });
+
+  test("model picker: clicking Anthropic shows Claude models", async () => {
+    await page.locator("#model-trigger").click();
+    await page.locator("#model-menu").getByText("Anthropic").click();
+    await expect(page.locator("#model-menu").getByText("Claude Opus 4.6")).toBeVisible();
+    await expect(page.locator("#model-menu").getByText("Claude Haiku 4.5")).toBeVisible();
+  });
+
+  test("model picker: selecting a model updates the trigger label", async () => {
+    await page.locator("#model-trigger").click();
+    await page.locator("#model-menu").getByText("OpenAI").click();
+    await page.locator("#model-menu").getByText("GPT-5.4 Mini").click();
+    await expect(page.locator("#model-menu")).toBeHidden();
+    await expect(page.locator("#model-value")).toHaveText("GPT-5.4 Mini");
+  });
+
+  test("model picker: back button returns to provider list", async () => {
+    await page.locator("#model-trigger").click();
+    await page.locator("#model-menu").getByText("Anthropic").click();
+    await expect(page.locator("#model-menu").getByText("Claude Opus 4.6")).toBeVisible();
+    // Click the back button (contains "Anthropic" text)
+    await page.locator(".dropdown-back").click();
+    await expect(page.locator("#model-menu").getByText("OpenAI")).toBeVisible();
+    await expect(page.locator("#model-menu").getByText("Anthropic")).toBeVisible();
+  });
+
+  test("model picker: closes when clicking outside", async () => {
+    await page.locator("#model-trigger").click();
+    await expect(page.locator("#model-menu")).toBeVisible();
+    await page.locator("#target").click();
+    await expect(page.locator("#model-menu")).toBeHidden();
+  });
 });

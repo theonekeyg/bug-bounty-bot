@@ -317,6 +317,8 @@
       }
       details[open] .api-keys-toggle::before { transform: rotate(45deg); }
       .api-keys-body { padding-top: 8px; }
+      .api-keys-note { font-size: 11px; color: var(--muted); margin: 4px 0 8px; line-height: 1.5; }
+      .api-keys-note code { font-family: monospace; color: var(--text-soft); }
 
       /* ── Two-level model picker ── */
       .dropdown-option-chevron-right {
@@ -439,10 +441,7 @@
                 <label>OpenAI API Key</label>
                 <input type="password" id="openai-key" placeholder="sk-..." autocomplete="off" />
               </div>
-              <div class="field">
-                <label>Anthropic API Key</label>
-                <input type="password" id="anthropic-key" placeholder="sk-ant-..." autocomplete="off" />
-              </div>
+              <p class="api-keys-note">Anthropic models use your Claude Code subscription (<code>claude auth login</code>).</p>
             </div>
           </details>
 

@@ -42,7 +42,6 @@ const permApprove = el<HTMLButtonElement>("perm-approve");
 const permDeny = el<HTMLButtonElement>("perm-deny");
 const modelInput = el<HTMLInputElement>("model-name");
 const openaiKeyInput = el<HTMLInputElement>("openai-key");
-const anthropicKeyInput = el<HTMLInputElement>("anthropic-key");
 
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
@@ -319,7 +318,8 @@ function createModelPicker(): void {
         chevron.setAttribute("aria-hidden", "true");
 
         btn.append(icon, main, chevron);
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
           panel = "models";
           browsingProvider = p.value;
           renderMenu();
@@ -334,7 +334,8 @@ function createModelPicker(): void {
       const backChevron = document.createElement("span");
       backChevron.className = "dropdown-back-chevron";
       back.append(backChevron, PROVIDERS.find((p) => p.value === browsingProvider)?.label ?? "");
-      back.addEventListener("click", () => {
+      back.addEventListener("click", (e) => {
+        e.stopPropagation();
         panel = "providers";
         browsingProvider = null;
         renderMenu();
@@ -368,7 +369,7 @@ function createModelPicker(): void {
         check.setAttribute("aria-hidden", "true");
 
         btn.append(main, check);
-        btn.addEventListener("click", () => selectModel(model.value));
+        btn.addEventListener("click", (e) => { e.stopPropagation(); selectModel(model.value); });
         menu.appendChild(btn);
       }
     }
@@ -400,15 +401,11 @@ createModelPicker();
 
 void api.getSettings().then((s) => {
   openaiKeyInput.value = s.openaiKey;
-  anthropicKeyInput.value = s.anthropicKey;
 });
 
-const saveApiKeys = (): void => {
-  void api.saveSettings({ openaiKey: openaiKeyInput.value, anthropicKey: anthropicKeyInput.value });
-};
-
-openaiKeyInput.addEventListener("blur", saveApiKeys);
-anthropicKeyInput.addEventListener("blur", saveApiKeys);
+openaiKeyInput.addEventListener("blur", () => {
+  void api.saveSettings({ openaiKey: openaiKeyInput.value });
+});
 
 // ── Form handlers ────────────────────────────────────────────────────────────
 
