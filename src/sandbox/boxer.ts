@@ -22,7 +22,7 @@ import {
 import { emitRuntimeEvent } from "../ipc/bus.js";
 
 export class BoxerClient {
-  private readonly baseUrl: string;
+  readonly baseUrl: string;
 
   constructor(baseUrl = "http://localhost:8080") {
     this.baseUrl = baseUrl.replace(/\/$/, "");

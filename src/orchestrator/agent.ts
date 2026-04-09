@@ -7,11 +7,10 @@ import { readFile } from "fs/promises";
 import { runAgent } from "../sdk/client.js";
 import {
   appendProgress,
-  writePlan,
   readAllTrackStates,
   allTracksTerminal,
   initStateDir,
-  paths,
+  sessionPaths,
 } from "../loop/state.js";
 import { BoxerClient } from "../sandbox/boxer.js";
 import { parseBrief } from "../types/index.js";
@@ -20,39 +19,72 @@ import { runResearcher } from "../researcher/agent.js";
 import type { RunModelConfig } from "../types/provider.js";
 import { getModelInfo, getModelProvider } from "../types/provider.js";
 import { runReporter } from "../reporter/agent.js";
-import { emitRuntimeEvent } from "../ipc/bus.js";
+import { emitSessionEvent } from "../ipc/bus.js";
+import { createSession, updateSessionStatus, upsertTrack } from "../db/sessions.js";
 
-const SYSTEM_PROMPT = `You are the Orchestrator in an autonomous security research system.
+const SYSTEM_PROMPT_TEMPLATE = (stateDir: string) => `You are the Orchestrator in an autonomous security research system.
 
 Your job:
 1. Read the user's brief and understand the target, scope, and goal.
 2. Identify the attack surface — all vulnerability classes and entry points worth investigating.
 3. Define research tracks — one focused, falsifiable hypothesis per track (max 6).
-4. Write state/plan.md with the attack surface map and track list.
+4. Write ${stateDir}/plan.md with the attack surface map and track list.
 5. For each track, create:
-   - state/research/<track-id>/hypothesis.md  (the hypothesis)
-   - state/research/<track-id>/status.json    ({"status":"running","trackId":"<id>","hypothesis":"<one-line>","startedAt":"<iso>","updatedAt":"<iso>"})
+   - ${stateDir}/research/<track-id>/hypothesis.md  (the hypothesis)
+   - ${stateDir}/research/<track-id>/status.json    ({"status":"running","trackId":"<id>","hypothesis":"<one-line>","startedAt":"<iso>","updatedAt":"<iso>"})
 
 Use the Write tool for all file creation.
 When all files are written, end your response with: ORCHESTRATION_DONE`;
+
+export interface OrchestratorOpts {
+  /** Resume an existing session instead of creating a new one. */
+  sessionId?: string;
+}
 
 export async function runOrchestrator(
   briefPath: string,
   boxer: BoxerClient,
   modelConfig: RunModelConfig,
+  opts: OrchestratorOpts = {},
 ): Promise<void> {
-  await initStateDir();
   const provider = getModelProvider(modelConfig.model);
   const modelInfo = getModelInfo(modelConfig.model);
-  emitRuntimeEvent({
+  const raw = await readFile(briefPath, "utf-8");
+  const brief = parseBrief(raw);
+
+  // ── Session setup ───────────────────────────────────────────────────────────
+  let sessionId: string;
+  let resuming = false;
+
+  if (opts.sessionId) {
+    // Resume an interrupted session — reuse existing state on disk.
+    sessionId = opts.sessionId;
+    resuming = true;
+    await updateSessionStatus(sessionId, "running");
+    await initStateDir(sessionId);
+  } else {
+    // New session — create DB record and fresh state directory.
+    sessionId = await createSession({
+      target: brief.target,
+      briefPath,
+      briefContent: raw,
+      model: modelConfig.model,
+      boxerUrl: boxer.baseUrl ?? "http://localhost:8080",
+    });
+    await initStateDir(sessionId);
+  }
+
+  const paths = sessionPaths(sessionId);
+
+  emitSessionEvent(sessionId, {
     scope: "session",
     kind: "session_started",
     severity: "info",
-    title: "Research session started",
+    title: resuming ? "Research session resumed" : "Research session started",
     detail: `${modelInfo.label} via ${provider}`,
     stage: "Starting",
   });
-  emitRuntimeEvent({
+  emitSessionEvent(sessionId, {
     scope: "session",
     kind: "stage_changed",
     severity: "info",
@@ -61,25 +93,65 @@ export async function runOrchestrator(
     stage: "Preparing Environment",
   });
   await appendProgress(
+    sessionId,
     "orchestrator",
-    `[run] Requested model: ${modelConfig.model} (${modelInfo.label}) via ${provider}`,
+    `[run] Requested model: ${modelConfig.model} (${modelInfo.label}) via ${provider}${resuming ? " (RESUMED)" : ""}`,
   );
-  const raw = await readFile(briefPath, "utf-8");
-  emitRuntimeEvent({
+  emitSessionEvent(sessionId, {
     scope: "session",
     kind: "stage_changed",
     severity: "info",
     title: "Brief loaded",
-    detail: `Target: ${parseBrief(raw).target}`,
+    detail: `Target: ${brief.target}`,
     stage: "Loading Brief",
   });
-  const brief = parseBrief(raw);
+
   let tracksCreated = false;
+
+  // If resuming and plan already exists, skip orchestration and go to research.
+  const existingStates = await readAllTrackStates(sessionId);
+  if (resuming && existingStates.length > 0) {
+    tracksCreated = true;
+    const nonTerminal = existingStates.filter(
+      (s) => s.status !== "found" && s.status !== "disproven" && s.status !== "blocked",
+    );
+    emitSessionEvent(sessionId, {
+      scope: "session",
+      kind: "stage_changed",
+      severity: "info",
+      title: "Resuming research",
+      detail: `${nonTerminal.length} track(s) need resumption, ${existingStates.length - nonTerminal.length} already terminal`,
+      stage: "Launching Researchers",
+    });
+    for (const state of nonTerminal) {
+      emitSessionEvent(sessionId, {
+        scope: "track",
+        kind: "track_created",
+        severity: "info",
+        trackId: state.trackId,
+        title: `Track resumed: ${state.trackId}`,
+        detail: state.hypothesis,
+        stage: "Queued",
+        status: state.status,
+      });
+      runResearcher(sessionId, state.trackId, brief, boxer, modelConfig).catch((err: unknown) =>
+        console.error(`Researcher ${state.trackId} crashed:`, err),
+      );
+    }
+    emitSessionEvent(sessionId, {
+      scope: "session",
+      kind: "stage_changed",
+      severity: "info",
+      title: "Researchers re-launched",
+      detail: "Investigation resumed across active tracks",
+      stage: "Research In Progress",
+    });
+  }
 
   await runRalphLoop(
     async (): Promise<LoopIteration> => {
       if (tracksCreated) {
-        emitRuntimeEvent({
+        emitSessionEvent(sessionId, {
           scope: "session",
           kind: "waiting",
           severity: "info",
@@ -87,9 +159,9 @@ export async function runOrchestrator(
           detail: "Monitoring track completion before report generation",
           stage: "Research In Progress",
         });
-        const states = await readAllTrackStates();
+        const states = await readAllTrackStates(sessionId);
         if (allTracksTerminal(states)) {
-          emitRuntimeEvent({
+          emitSessionEvent(sessionId, {
             scope: "session",
             kind: "stage_changed",
             severity: "info",
@@ -97,13 +169,14 @@ export async function runOrchestrator(
             detail: "Starting report generation",
             stage: "Reporting",
           });
-          await runReporter(boxer, modelConfig);
+          await runReporter(sessionId, boxer, modelConfig);
+          await updateSessionStatus(sessionId, "completed");
           return { done: true, reason: "all tracks terminal, report generated" };
         }
         return { done: false };
       }
 
-      emitRuntimeEvent({
+      emitSessionEvent(sessionId, {
         scope: "session",
         kind: "stage_changed",
         severity: "info",
@@ -113,9 +186,10 @@ export async function runOrchestrator(
       });
       const result = await runAgent({
         modelConfig,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir()),
         prompt: buildPrompt(brief, raw),
         cwd: process.cwd(),
+        sessionId,
         trackId: "orchestrator",
         allowedTools: ["Write", "Read", "Edit", "Glob", "Grep"],
         persistHeartbeats: true,
@@ -123,8 +197,8 @@ export async function runOrchestrator(
 
       if (result.result.includes("ORCHESTRATION_DONE")) {
         tracksCreated = true;
-        const states = await readAllTrackStates();
-        emitRuntimeEvent({
+        const states = await readAllTrackStates(sessionId);
+        emitSessionEvent(sessionId, {
           scope: "session",
           kind: "stage_changed",
           severity: "info",
@@ -132,9 +206,15 @@ export async function runOrchestrator(
           detail: `${states.length} track(s) ready`,
           stage: "Launching Researchers",
         });
-        // Spawn researchers concurrently — each runs its own loop
+        // Register tracks in DB and spawn researchers concurrently
         for (const state of states) {
-          emitRuntimeEvent({
+          await upsertTrack({
+            id: state.trackId,
+            sessionId,
+            hypothesis: state.hypothesis,
+            status: state.status,
+          });
+          emitSessionEvent(sessionId, {
             scope: "track",
             kind: "track_created",
             severity: "info",
@@ -144,11 +224,11 @@ export async function runOrchestrator(
             stage: "Queued",
             status: state.status,
           });
-          runResearcher(state.trackId, brief, boxer, modelConfig).catch((err: unknown) =>
+          runResearcher(sessionId, state.trackId, brief, boxer, modelConfig).catch((err: unknown) =>
             console.error(`Researcher ${state.trackId} crashed:`, err),
           );
         }
-        emitRuntimeEvent({
+        emitSessionEvent(sessionId, {
           scope: "session",
           kind: "stage_changed",
           severity: "info",
@@ -160,7 +240,14 @@ export async function runOrchestrator(
 
       return { done: false };
     },
-    { trackId: "orchestrator", label: "Orchestrator", maxIterations: 100, delayMs: 5000, scope: "session" },
+    {
+      sessionId,
+      trackId: "orchestrator",
+      label: "Orchestrator",
+      maxIterations: 100,
+      delayMs: 5000,
+      scope: "session",
+    },
   );
 }
 

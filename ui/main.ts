@@ -10,11 +10,18 @@ import { existsSync } from "fs";
 import { BoxerClient } from "../src/sandbox/boxer.ts";
 import { runOrchestrator } from "../src/orchestrator/agent.ts";
 import { ipcBus, type ResearchLogEvent } from "../src/ipc/bus.ts";
-import { readAllTrackStates, resetSessionState } from "../src/loop/state.ts";
+import { readAllTrackStates, sessionPaths } from "../src/loop/state.ts";
 import type { PendingInstall } from "../src/types/state.ts";
 import { PendingInstallSchema } from "../src/types/state.ts";
 import { RunModelConfigSchema } from "../src/types/provider.ts";
 import type { RuntimeEvent } from "../src/types/runtime.ts";
+import {
+  initDb,
+  markCrashedSessions,
+  listSessions,
+  getSession,
+  updateSessionStatus,
+} from "../src/db/index.ts";
 
 export interface AppSettings {
   openaiKey: string;
@@ -40,6 +47,8 @@ async function saveSettings(settings: AppSettings): Promise<void> {
 
 let mainWindow: BrowserWindow | null = null;
 let activeBoxer: BoxerClient | null = null;
+/** Session currently being researched (used to scope polling and pending installs). */
+let activeSessionId: string | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -74,6 +83,13 @@ ipcBus.on("runtime-event", (event: RuntimeEvent) => {
 });
 
 app.whenReady().then(async () => {
+  // Initialise SQLite database in the user data directory
+  const dbPath = join(app.getPath("userData"), "bugbounty.db");
+  await initDb(dbPath);
+
+  // Any session that was "running" when the process died is now "crashed"
+  await markCrashedSessions();
+
   // Apply saved API keys to env before any agent runs
   const settings = await loadSettings();
   if (settings.openaiKey && !process.env["OPENAI_API_KEY"]) process.env["OPENAI_API_KEY"] = settings.openaiKey;
@@ -91,17 +107,76 @@ app.on("window-all-closed", () => {
 
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 
-/** Start a research session from a brief. */
+/** List all sessions (newest first). */
+ipcMain.handle("list-sessions", async () => listSessions());
+
+/** Get a single session by ID. */
+ipcMain.handle("get-session", async (_event, sessionId: string) => getSession(sessionId));
+
+/** Get all persisted events for a session (for replaying on resume). */
+ipcMain.handle("get-session-events", async (_event, sessionId: string) => {
+  const { getSessionEvents } = await import("../src/db/sessions.ts");
+  return getSessionEvents(sessionId);
+});
+
+/** Start a new research session from a brief. */
 ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string) => {
   activeBoxer = new BoxerClient(boxerUrl);
   const modelConfig = RunModelConfigSchema.parse({ model });
-  await resetSessionState();
 
-  runOrchestrator(briefPath, activeBoxer, modelConfig).catch((err: unknown) => {
-    mainWindow?.webContents.send("research-error", String(err));
-  });
+  // runOrchestrator creates the session in DB and returns after session is complete.
+  // We don't await here — fire and forget so the IPC call returns immediately.
+  let capturedSessionId: string | null = null;
 
-  return { started: true };
+  // We need the sessionId before the orchestrator returns. Since createSession
+  // is called inside runOrchestrator, we listen for the first runtime-event which
+  // carries enough info. Instead, let's create the session here and pass it in.
+  // Simpler: run orchestrator normally, sessionId is emitted via the first event.
+  // The renderer will know it from the list-sessions call.
+  runOrchestrator(briefPath, activeBoxer, modelConfig)
+    .then(() => {
+      void capturedSessionId;
+    })
+    .catch((err: unknown) => {
+      mainWindow?.webContents.send("research-error", String(err));
+      if (activeSessionId) {
+        updateSessionStatus(activeSessionId, "failed").catch(console.error);
+      }
+    });
+
+  // Give the orchestrator a moment to create the session, then return its ID
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const sessions = await listSessions();
+  const newest = sessions[0];
+  if (newest) {
+    activeSessionId = newest.id;
+    return { started: true, sessionId: newest.id };
+  }
+  return { started: true, sessionId: null };
+});
+
+/** Resume a previously crashed or interrupted session. */
+ipcMain.handle("resume-research", async (_event, sessionId: string) => {
+  const session = await getSession(sessionId);
+  if (!session) return { error: "Session not found" };
+
+  activeBoxer = new BoxerClient(session.boxerUrl);
+  activeSessionId = sessionId;
+  const modelConfig = RunModelConfigSchema.parse({ model: session.model });
+
+  runOrchestrator(session.briefPath, activeBoxer, modelConfig, { sessionId })
+    .catch((err: unknown) => {
+      mainWindow?.webContents.send("research-error", String(err));
+      updateSessionStatus(sessionId, "failed").catch(console.error);
+    });
+
+  return { started: true, sessionId };
+});
+
+/** Set the active session for polling (when user clicks into a historical session). */
+ipcMain.handle("set-active-session", async (_event, sessionId: string) => {
+  activeSessionId = sessionId;
+  return { ok: true };
 });
 
 /** Get persisted API key settings. */
@@ -137,15 +212,23 @@ ipcMain.handle("pick-file", async (_event, filters?: Electron.FileFilter[]) => {
   return result.filePaths[0] ?? null;
 });
 
-/** Poll current research progress. */
-ipcMain.handle("get-progress", async () => {
-  const states = await readAllTrackStates();
-  return states;
+/** Poll current research progress for the active session. */
+ipcMain.handle("get-progress", async (_event, sessionId?: string) => {
+  const sid = sessionId ?? activeSessionId;
+  if (!sid) return [];
+  return readAllTrackStates(sid);
+});
+
+/** Get the state directory path for a session (so renderer can construct file paths). */
+ipcMain.handle("get-session-state-dir", async (_event, sessionId: string) => {
+  return sessionPaths(sessionId).stateDir();
 });
 
 /** Check for pending install permission requests. */
-ipcMain.handle("get-pending-installs", async () => {
-  const researchDir = join("state", "research");
+ipcMain.handle("get-pending-installs", async (_event, sessionId?: string) => {
+  const sid = sessionId ?? activeSessionId;
+  if (!sid) return [];
+  const researchDir = join(sessionPaths(sid).stateDir(), "research");
   if (!existsSync(researchDir)) return [];
 
   const dirs = await readdir(researchDir, { withFileTypes: true });

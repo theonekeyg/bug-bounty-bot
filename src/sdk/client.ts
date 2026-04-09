@@ -17,7 +17,8 @@ export interface AgentRunOptions {
   prompt: string;
   modelConfig: RunModelConfig;
   cwd?: string;
-  trackId?: string; // used to stream progress back to the UI
+  sessionId?: string; // for DB event persistence and progress logging
+  trackId?: string;   // used to stream progress back to the UI
   allowedTools?: string[];
   persistHeartbeats?: boolean;
 }
@@ -37,8 +38,8 @@ function isApiLimitError(error: unknown): boolean {
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
     const statusMatch = message.match(/status\s+(\d{3})/);
-    const status = statusMatch ? parseInt(statusMatch[1]) : 0;
-    
+    const status = statusMatch?.[1] !== undefined ? parseInt(statusMatch[1]) : 0;
+
     return (
       message.includes('rate limit') ||
       message.includes('quota exceeded') ||
@@ -65,10 +66,15 @@ function isApiLimitError(error: unknown): boolean {
   return false;
 }
 
-function handleApiLimitError(error: unknown, trackId: string | undefined, provider: string): void {
+function handleApiLimitError(
+  error: unknown,
+  opts: Pick<AgentRunOptions, "trackId" | "sessionId">,
+  provider: string,
+): void {
+  const { trackId, sessionId } = opts;
   const errorMessage = error instanceof Error ? error.message : String(error);
   const isLimit = isApiLimitError(error);
-  
+
   if (isLimit) {
     emitRuntimeEvent({
       scope: trackId === "orchestrator" ? "session" : "track",
@@ -79,9 +85,13 @@ function handleApiLimitError(error: unknown, trackId: string | undefined, provid
       detail: `${provider} API quota exceeded. Please check your usage and billing status.`,
       stage: "API Limit",
     });
-    
-    if (trackId) {
-      void appendProgress(trackId, `\n[API LIMIT] ${provider} API quota exceeded. Request failed: ${errorMessage}\n`);
+
+    if (trackId && sessionId) {
+      void appendProgress(
+        sessionId,
+        trackId,
+        `\n[API LIMIT] ${provider} API quota exceeded. Request failed: ${errorMessage}\n`,
+      );
     }
   }
 }
@@ -110,15 +120,15 @@ function startHeartbeat(opts: AgentRunOptions): () => void {
       detail: `${elapsedSec}s elapsed`,
       stage: "Waiting For Model",
     });
-    if (opts.persistHeartbeats) {
-      void appendProgress(trackId, note);
+    if (opts.persistHeartbeats && opts.sessionId) {
+      void appendProgress(opts.sessionId, trackId, note);
     }
     lastNotedAt = now;
 
     // Detect potential API limit/hang after 60 seconds
     if (elapsedSec > 60) {
       const timeoutError = new Error(`API request timeout after ${elapsedSec}s - possible rate limit or service issue`);
-      handleApiLimitError(timeoutError, trackId, "Anthropic");
+      handleApiLimitError(timeoutError, opts, "Anthropic");
     }
   }, 5000);
 
@@ -156,7 +166,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
         if (text) emitResearchLog(opts.trackId, text + "\n");
         return { result: text, costUsd: 0, turns: 1 };
       } catch (error) {
-        handleApiLimitError(error, opts.trackId, "OpenAI");
+        handleApiLimitError(error, opts, "OpenAI");
         throw error;
       }
     }
@@ -212,7 +222,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
         if (message.type === "result") {
           if (message.subtype !== "success") {
             const error = new Error(`Claude agent error (${message.subtype}): ${message.errors.join(", ")}`);
-            handleApiLimitError(error, opts.trackId, "Anthropic");
+            handleApiLimitError(error, opts, "Anthropic");
             throw error;
           }
           return {
@@ -224,12 +234,12 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     } catch (streamError) {
       // Handle stream errors including timeouts and connection issues
-      handleApiLimitError(streamError, opts.trackId, "Anthropic");
+      handleApiLimitError(streamError, opts, "Anthropic");
       throw streamError;
     }
 
     const error = new Error("Claude agent stream ended without a result message");
-    handleApiLimitError(error, opts.trackId, "Anthropic");
+    handleApiLimitError(error, opts, "Anthropic");
     throw error;
   } finally {
     stopHeartbeat();

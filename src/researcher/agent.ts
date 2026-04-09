@@ -14,15 +14,17 @@ import {
   updateTrackStatus,
   appendProgress,
   readProgress,
-  paths,
+  sessionPaths,
 } from "../loop/state.js";
 import { BoxerClient } from "../sandbox/boxer.js";
 import { runRalphLoop, type LoopIteration } from "../loop/runner.js";
 import type { Brief } from "../types/index.js";
 import type { RunModelConfig } from "../types/provider.js";
-import { emitRuntimeEvent } from "../ipc/bus.js";
+import { emitSessionEvent } from "../ipc/bus.js";
+import { updateTrackInDb, upsertTrack } from "../db/sessions.js";
 
-const SYSTEM_PROMPT = `You are a Researcher in an autonomous security research system.
+const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, trackId: string) =>
+  `You are a Researcher in an autonomous security research system.
 
 You own one specific vulnerability hypothesis. Each time you run, read your state files and continue exactly where you left off.
 
@@ -43,31 +45,34 @@ Network modes: none (default), sandbox (outbound NAT), host.
 Always use "none" unless external access is necessary.
 
 ## Your loop
-1. Read hypothesis.md and progress.md to understand current state.
+1. Read ${stateDir}/research/${trackId}/hypothesis.md and ${stateDir}/research/${trackId}/progress.md to understand current state.
 2. Plan the next investigation step.
 3. Execute it (use Bash/Grep/Read/WebFetch etc).
-4. Append findings to state/research/<trackId>/progress.md after EVERY significant action.
+4. Append findings to ${stateDir}/research/${trackId}/progress.md after EVERY significant action.
 5. When conclusion reached:
 
-   Found vulnerability → write full details to findings.md, create output/repro/<vuln-id>/ with:
+   Found vulnerability → write full details to ${stateDir}/research/${trackId}/findings.md, create output/ with:
      - README.md (setup + step-by-step reproduction)
      - setup.sh (environment setup)
      - exploit.ts (TypeScript PoC — mark [UNTESTED] if not run)
    Then end response with: STATUS:found
 
-   Hypothesis disproven → write evidence to findings.md, end with: STATUS:disproven
+   Hypothesis disproven → write evidence to ${stateDir}/research/${trackId}/findings.md, end with: STATUS:disproven
 
-   Blocked → write blocker to progress.md, end with: STATUS:blocked:<reason>
+   Blocked → write blocker to ${stateDir}/research/${trackId}/progress.md, end with: STATUS:blocked:<reason>
 
-Never end a turn without appending to progress.md.`;
+Never end a turn without appending to ${stateDir}/research/${trackId}/progress.md.`;
 
 export async function runResearcher(
+  sessionId: string,
   trackId: string,
   brief: Brief,
   boxer: BoxerClient,
   modelConfig: RunModelConfig,
 ): Promise<void> {
-  emitRuntimeEvent({
+  const paths = sessionPaths(sessionId);
+
+  emitSessionEvent(sessionId, {
     scope: "track",
     kind: "stage_changed",
     severity: "info",
@@ -81,9 +86,10 @@ export async function runResearcher(
   try {
     const ws = await boxer.createWorkspace(`track-${trackId}`, "ubuntu:22.04");
     workspaceId = ws.workspaceId;
-    const state = await readTrackState(trackId);
-    if (state) await writeTrackState({ ...state, workspaceId });
-    emitRuntimeEvent({
+    const state = await readTrackState(sessionId, trackId);
+    if (state) await writeTrackState(sessionId, { ...state, workspaceId });
+    await updateTrackInDb(trackId, { workspaceId });
+    emitSessionEvent(sessionId, {
       scope: "track",
       kind: "stage_changed",
       severity: "info",
@@ -94,7 +100,7 @@ export async function runResearcher(
     });
   } catch {
     console.warn(`[researcher:${trackId}] Boxer workspace creation failed — continuing without`);
-    emitRuntimeEvent({
+    emitSessionEvent(sessionId, {
       scope: "track",
       kind: "error",
       severity: "warning",
@@ -107,13 +113,13 @@ export async function runResearcher(
 
   await runRalphLoop(
     async (): Promise<LoopIteration> => {
-      const state = await readTrackState(trackId);
+      const state = await readTrackState(sessionId, trackId);
       if (!state) throw new Error(`Track ${trackId} has no state`);
       if (state.status === "found" || state.status === "disproven" || state.status === "blocked") {
         return { done: true, reason: state.status };
       }
 
-      emitRuntimeEvent({
+      emitSessionEvent(sessionId, {
         scope: "track",
         kind: "stage_changed",
         severity: "info",
@@ -124,12 +130,12 @@ export async function runResearcher(
       });
 
       const hypothesis = await readFile(paths.hypothesisMd(trackId), "utf-8");
-      const progress = await readProgress(trackId);
+      const progress = await readProgress(sessionId, trackId);
       const findings = existsSync(paths.findingsMd(trackId))
         ? await readFile(paths.findingsMd(trackId), "utf-8")
         : "";
 
-      emitRuntimeEvent({
+      emitSessionEvent(sessionId, {
         scope: "track",
         kind: "stage_changed",
         severity: "info",
@@ -140,8 +146,9 @@ export async function runResearcher(
       });
       const result = await runAgent({
         modelConfig,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir(), trackId),
         prompt: buildPrompt({
+          sessionId,
           trackId,
           brief,
           hypothesis,
@@ -150,6 +157,7 @@ export async function runResearcher(
           ...(workspaceId !== undefined ? { workspaceId } : {}),
         }),
         cwd: process.cwd(),
+        sessionId,
         trackId,
         allowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"],
       });
@@ -157,9 +165,10 @@ export async function runResearcher(
       const response = result.result;
 
       if (response.includes("STATUS:found")) {
-        await updateTrackStatus(trackId, "found");
-        await appendProgress(trackId, "[runner] Status → found");
-        emitRuntimeEvent({
+        await updateTrackStatus(sessionId, trackId, "found");
+        await updateTrackInDb(trackId, { status: "found" });
+        await appendProgress(sessionId, trackId, "[runner] Status → found");
+        emitSessionEvent(sessionId, {
           scope: "track",
           kind: "track_status_changed",
           severity: "success",
@@ -172,9 +181,10 @@ export async function runResearcher(
         return { done: true, reason: "found" };
       }
       if (response.includes("STATUS:disproven")) {
-        await updateTrackStatus(trackId, "disproven");
-        await appendProgress(trackId, "[runner] Status → disproven");
-        emitRuntimeEvent({
+        await updateTrackStatus(sessionId, trackId, "disproven");
+        await updateTrackInDb(trackId, { status: "disproven" });
+        await appendProgress(sessionId, trackId, "[runner] Status → disproven");
+        emitSessionEvent(sessionId, {
           scope: "track",
           kind: "track_status_changed",
           severity: "info",
@@ -188,9 +198,13 @@ export async function runResearcher(
       }
       const blocked = response.match(/STATUS:blocked:(.+)/);
       if (blocked) {
-        await updateTrackStatus(trackId, "blocked");
-        await appendProgress(trackId, `[runner] Status → blocked: ${blocked[1] ?? ""}`);
-        emitRuntimeEvent({
+        await updateTrackStatus(sessionId, trackId, "blocked");
+        await updateTrackInDb(trackId, {
+          status: "blocked",
+          blockedReason: blocked[1]?.trim() ?? "blocked",
+        });
+        await appendProgress(sessionId, trackId, `[runner] Status → blocked: ${blocked[1] ?? ""}`);
+        emitSessionEvent(sessionId, {
           scope: "track",
           kind: "track_status_changed",
           severity: "warning",
@@ -203,7 +217,7 @@ export async function runResearcher(
         return { done: true, reason: `blocked: ${blocked[1] ?? ""}` };
       }
 
-      emitRuntimeEvent({
+      emitSessionEvent(sessionId, {
         scope: "track",
         kind: "waiting",
         severity: "info",
@@ -214,15 +228,20 @@ export async function runResearcher(
       });
       return { done: false };
     },
-    { trackId, label: `Researcher:${trackId}`, maxIterations: 50, delayMs: 2000 },
+    { sessionId, trackId, label: `Researcher:${trackId}`, maxIterations: 50, delayMs: 2000 },
   );
 
   if (workspaceId) {
-    try { await boxer.deleteWorkspace(workspaceId); } catch { /* non-critical */ }
+    try {
+      await boxer.deleteWorkspace(workspaceId);
+    } catch {
+      /* non-critical */
+    }
   }
 }
 
 interface PromptArgs {
+  sessionId: string;
   trackId: string;
   brief: Brief;
   hypothesis: string;

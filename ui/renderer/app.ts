@@ -3,7 +3,7 @@
  * Communicates with main process via window.bugBounty (preload bridge).
  */
 
-import type { BugBountyAPI } from "../preload.js";
+import type { BugBountyAPI, SessionInfo } from "../preload.js";
 import type { TrackState, PendingInstall, RuntimeEvent } from "../../src/types/index.js";
 import {
   DEFAULT_MODEL,
@@ -27,7 +27,9 @@ type DropdownOption = {
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-
+const sessionsView = el("sessions-view");
+const sessionsList = el("sessions-list");
+const newSessionBtn = el<HTMLButtonElement>("new-session-btn");
 const startBtn = el<HTMLButtonElement>("start-btn");
 const targetInput = el<HTMLInputElement>("target");
 const goalInput = el<HTMLInputElement>("goal");
@@ -83,6 +85,8 @@ const runtimeBoxer = el("runtime-boxer");
 const runtimeHealthLabel = el("runtime-health-label");
 const stageRail = el("stage-rail");
 
+let activeSessionId: string | null = null;
+let activeSessionStateDir: string | null = null;
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
@@ -818,6 +822,174 @@ createModelPicker();
 setActiveView("overview");
 resetRuntimeState();
 
+// ── Session list ──────────────────────────────────────────────────────────────
+
+function formatSessionDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " +
+    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function sessionStatusBadge(status: SessionInfo["status"]): string {
+  const map: Record<string, string> = {
+    running: "running",
+    completed: "found",
+    failed: "blocked",
+    crashed: "blocked",
+  };
+  return map[status] ?? "running";
+}
+
+function renderSessionList(sessions: SessionInfo[]): void {
+  sessionsList.innerHTML = "";
+  if (sessions.length === 0) return;
+
+  for (const s of sessions) {
+    const card = document.createElement("div");
+    card.className = "dashboard-card";
+    card.style.cssText = "padding:14px 18px; cursor:pointer; display:flex; align-items:center; gap:12px";
+
+    const statusDot = document.createElement("div");
+    statusDot.className = `status-dot ${sessionStatusBadge(s.status)}`;
+    statusDot.style.flexShrink = "0";
+
+    const body = document.createElement("div");
+    body.style.cssText = "flex:1; min-width:0";
+
+    const titleRow = document.createElement("div");
+    titleRow.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:4px";
+
+    const title = document.createElement("strong");
+    title.style.cssText = "font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis";
+    title.textContent = s.target;
+
+    const badge = document.createElement("span");
+    badge.className = `track-status-pill ${sessionStatusBadge(s.status)}`;
+    badge.textContent = s.status;
+
+    titleRow.append(title, badge);
+
+    const meta = document.createElement("div");
+    meta.style.cssText = "font-size:11px; color:var(--muted)";
+    meta.textContent = `${s.trackCount} track${s.trackCount === 1 ? "" : "s"} · ${s.model} · ${formatSessionDate(s.createdAt)}`;
+
+    body.append(titleRow, meta);
+
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex; gap:8px; flex-shrink:0";
+
+    if (s.status === "crashed" || s.status === "running") {
+      const resumeBtn = document.createElement("button");
+      resumeBtn.className = "btn-primary";
+      resumeBtn.style.cssText = "padding:6px 12px; font-size:12px";
+      resumeBtn.textContent = s.status === "crashed" ? "Resume" : "Attach";
+      resumeBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await attachOrResumeSession(s);
+      });
+      actions.appendChild(resumeBtn);
+    }
+
+    const viewBtn = document.createElement("button");
+    viewBtn.className = "btn-secondary";
+    viewBtn.style.cssText = "padding:6px 12px; font-size:12px";
+    viewBtn.textContent = "View";
+    viewBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await openSession(s);
+    });
+    actions.appendChild(viewBtn);
+
+    card.append(statusDot, body, actions);
+    sessionsList.appendChild(card);
+  }
+}
+
+async function attachOrResumeSession(s: SessionInfo): Promise<void> {
+  activeSessionId = s.id;
+  activeSessionStateDir = await api.getSessionStateDir(s.id);
+  await api.setActiveSession(s.id);
+
+  if (s.status === "crashed") {
+    // Resume in background
+    startBtn.disabled = true;
+    startBtn.textContent = "Resuming...";
+    const result = await api.resumeResearch(s.id);
+    if ("error" in result) {
+      alert(`Resume failed: ${result.error}`);
+      startBtn.disabled = false;
+      startBtn.textContent = "Start Research";
+      return;
+    }
+  }
+
+  await openSession(s);
+  // Re-launch polling and load events
+  await replaySessionEvents(s.id);
+  startPolling();
+}
+
+async function openSession(s: SessionInfo): Promise<void> {
+  activeSessionId = s.id;
+  activeSessionStateDir = await api.getSessionStateDir(s.id);
+  await api.setActiveSession(s.id);
+
+  resetRuntimeState();
+  document.body.classList.add("session-live");
+  activeTrackId = "orchestrator";
+  activeTitle.textContent = "orchestrator";
+  activeStatusDot.className = "status-dot " + (s.status === "running" ? "running" : s.status === "completed" ? "found" : "blocked");
+  runtimeTarget.textContent = s.target;
+  runtimeModel.textContent = s.model;
+  runtimeBoxer.textContent = s.boxerUrl;
+  runtimeSessionCard.classList.remove("hidden");
+
+  sessionsView.style.display = "none";
+  welcome.style.display = "none";
+  progressView.style.display = "flex";
+}
+
+async function replaySessionEvents(sessionId: string): Promise<void> {
+  try {
+    const events = await api.getSessionEvents(sessionId);
+    for (const e of events) {
+      const runtimeEvent: RuntimeEvent = {
+        id: e.id,
+        timestamp: e.createdAt,
+        scope: (e.trackId ? "track" : "session") as RuntimeEvent["scope"],
+        kind: e.kind as RuntimeEvent["kind"],
+        severity: e.severity as RuntimeEvent["severity"],
+        title: e.title,
+        detail: e.detail,
+        stage: e.stage,
+        trackId: e.trackId,
+        status: e.status as RuntimeEvent["status"],
+      };
+      applyRuntimeEvent(runtimeEvent);
+    }
+  } catch {
+    // Non-fatal — events just won't be replayed
+  }
+}
+
+async function initSessionsView(): Promise<void> {
+  const sessions = await api.listSessions();
+  if (sessions.length === 0) {
+    // No history — go straight to the brief form
+    return;
+  }
+  renderSessionList(sessions);
+  welcome.style.display = "none";
+  sessionsView.style.display = "flex";
+}
+
+newSessionBtn.addEventListener("click", () => {
+  sessionsView.style.display = "none";
+  welcome.style.display = "";
+});
+
+void initSessionsView();
+
 overviewTab.addEventListener("click", () => setActiveView("overview"));
 tracksTab.addEventListener("click", () => setActiveView("tracks"));
 debugTab.addEventListener("click", () => setActiveView("debug"));
@@ -888,7 +1060,11 @@ startBtn.addEventListener("click", async () => {
   runtimeHealthLabel.textContent = "Preparing";
   runtimeSessionCard.classList.remove("hidden");
 
-  await api.startResearch(briefPath, boxerUrl, model);
+  const result = await api.startResearch(briefPath, boxerUrl, model);
+  if (result.sessionId) {
+    activeSessionId = result.sessionId;
+    activeSessionStateDir = await api.getSessionStateDir(result.sessionId);
+  }
   startPolling();
 
   welcome.style.display = "none";
@@ -904,8 +1080,8 @@ function startPolling(): void {
 
 async function poll(): Promise<void> {
   const [states, pendingInstalls] = await Promise.all([
-    api.getProgress(),
-    api.getPendingInstalls(),
+    api.getProgress(activeSessionId ?? undefined),
+    api.getPendingInstalls(activeSessionId ?? undefined),
   ]);
 
   currentStates = states;
@@ -916,11 +1092,8 @@ async function poll(): Promise<void> {
   renderActionCenter();
 
   // Re-read the active track's log on every poll (catches anything missed between stream events)
-  if (activeTrackId) {
-    const path =
-      activeTrackId === "orchestrator"
-        ? "state/research/orchestrator/progress.md"
-        : `state/research/${activeTrackId}/progress.md`;
+  if (activeTrackId && activeSessionStateDir) {
+    const path = `${activeSessionStateDir}/research/${activeTrackId}/progress.md`;
     const content = await api.readFile(path);
     if (content !== null && content !== progressLog.textContent) {
       progressLog.textContent = content;
@@ -995,11 +1168,14 @@ async function selectTrack(state: TrackState): Promise<void> {
     : state.trackId;
   activeStatusDot.className = `status-dot ${state.status}`;
 
-  const content = await api.readFile(`state/research/${state.trackId}/progress.md`);
+  const progressPath = activeSessionStateDir
+    ? `${activeSessionStateDir}/research/${state.trackId}/progress.md`
+    : null;
+  const content = progressPath ? await api.readFile(progressPath) : null;
   progressLog.textContent = content ?? "(no progress yet)";
   progressLog.scrollTop = progressLog.scrollHeight;
 
-  const states = await api.getProgress();
+  const states = await api.getProgress(activeSessionId ?? undefined);
   renderTracks(states);
 }
 

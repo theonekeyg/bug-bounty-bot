@@ -19,6 +19,7 @@ export interface LoopIteration {
 }
 
 export interface RalphLoopOptions {
+  sessionId: string;
   trackId: string;
   label: string;
   maxIterations?: number;
@@ -38,10 +39,10 @@ export async function runRalphLoop(
   agentFn: () => Promise<LoopIteration>,
   opts: RalphLoopOptions,
 ): Promise<void> {
-  const { trackId, label, maxIterations = 50, delayMs = 1000, scope = "track" } = opts;
+  const { sessionId, trackId, label, maxIterations = 50, delayMs = 1000, scope = "track" } = opts;
   let iteration = 0;
 
-  await appendProgress(trackId, `[loop] Starting "${label}" (maxIterations=${maxIterations})`);
+  await appendProgress(sessionId, trackId, `[loop] Starting "${label}" (maxIterations=${maxIterations})`);
 
   while (iteration < maxIterations) {
     iteration++;
@@ -52,7 +53,7 @@ export async function runRalphLoop(
       result = await agentFn();
     } catch (err) {
       const msg = `[loop] Iteration ${iteration} threw: ${String(err)}`;
-      await appendProgress(trackId, msg);
+      await appendProgress(sessionId, trackId, msg);
       emitRuntimeEvent({
         scope,
         kind: "retrying",
@@ -69,7 +70,7 @@ export async function runRalphLoop(
 
     if (result.done) {
       const msg = `[loop] "${label}" completed after ${iteration} iteration(s). Reason: ${result.reason ?? "done"}`;
-      await appendProgress(trackId, msg);
+      await appendProgress(sessionId, trackId, msg);
       emitRuntimeEvent({
         scope,
         kind: "session_completed",
@@ -86,7 +87,7 @@ export async function runRalphLoop(
   }
 
   const msg = `[loop] "${label}" hit maxIterations (${maxIterations}). Stopping.`;
-  await appendProgress(trackId, msg);
+  await appendProgress(sessionId, trackId, msg);
   emitRuntimeEvent({
     scope,
     kind: "error",
