@@ -11,11 +11,16 @@
       :root {
         --bg: #0f0f0f;
         --surface: #1a1a1a;
+        --surface-elevated: #141416;
         --border: #2a2a2a;
+        --border-strong: #3a3a3a;
         --text: #e0e0e0;
+        --text-soft: #9b9ba4;
         --muted: #666;
         --accent: #7c3aed;
         --accent-hover: #6d28d9;
+        --focus-ring: rgba(124, 58, 237, 0.28);
+        --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.45);
         --green: #22c55e;
         --yellow: #eab308;
         --red: #ef4444;
@@ -75,6 +80,155 @@
         resize: vertical;
       }
       input[type="text"]:focus, textarea:focus { border-color: var(--accent); }
+
+      .dropdown {
+        position: relative;
+      }
+      .dropdown-trigger {
+        width: 100%;
+        min-height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+          var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        text-align: left;
+        transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+      }
+      .dropdown-trigger:hover,
+      .dropdown.open .dropdown-trigger {
+        border-color: var(--border-strong);
+      }
+      .dropdown-trigger:focus-visible,
+      .dropdown.open .dropdown-trigger {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--focus-ring);
+      }
+      .dropdown-copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .dropdown-value {
+        font-size: 13px;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dropdown-meta {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dropdown-meta:empty {
+        display: none;
+      }
+      .dropdown-chevron {
+        width: 9px;
+        height: 9px;
+        flex-shrink: 0;
+        border-right: 1.5px solid var(--text-soft);
+        border-bottom: 1.5px solid var(--text-soft);
+        transform: translateY(-2px) rotate(45deg);
+        transition: transform 0.12s ease;
+      }
+      .dropdown.open .dropdown-chevron {
+        transform: translateY(2px) rotate(-135deg);
+      }
+      .dropdown-menu {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        right: 0;
+        padding: 6px;
+        background: var(--surface-elevated);
+        border: 1px solid var(--border-strong);
+        border-radius: 12px;
+        box-shadow: var(--shadow-lg);
+        z-index: 20;
+      }
+      .dropdown-menu.hidden {
+        display: none;
+      }
+      .dropdown-option {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 9px;
+        background: transparent;
+        border: none;
+        color: var(--text);
+        text-align: left;
+        transition: background 0.12s ease;
+      }
+      .dropdown-option:hover,
+      .dropdown-option:focus-visible,
+      .dropdown-option.selected {
+        outline: none;
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .dropdown-option-main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .dropdown-option-label {
+        font-size: 14px;
+        color: #f3f3f6;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dropdown-option-description {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dropdown-option-check {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--accent);
+        background: rgba(124, 58, 237, 0.12);
+        opacity: 0;
+        transition: opacity 0.12s ease;
+      }
+      .dropdown-option.selected .dropdown-option-check {
+        opacity: 1;
+      }
+      .dropdown-option-check::before {
+        content: "";
+        width: 8px;
+        height: 4px;
+        border-left: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(-45deg) translateY(-1px);
+      }
 
       .file-picker { display: flex; gap: 8px; }
       .file-picker input { flex: 1; font-family: var(--font-mono); font-size: 11px; }
@@ -171,16 +325,26 @@
             <label>Context</label>
             <textarea id="context" rows="2" placeholder="Node.js backend, JWT auth, PostgreSQL..."></textarea>
           </div>
-                    <div class="field">
-            <label>Model provider</label>
-            <select id="model-provider">
-              <option value="claude_code">Claude Code</option>
-              <option value="openai">OpenAI</option>
-            </select>
-          </div>
           <div class="field">
             <label>Model</label>
-            <input type="text" id="model-name" value="sonnet" placeholder="e.g. sonnet, gpt-5" />
+            <div class="dropdown" id="model-dropdown">
+              <input type="hidden" id="model-name" value="gpt-5.4" />
+              <button
+                type="button"
+                class="dropdown-trigger"
+                id="model-trigger"
+                aria-haspopup="listbox"
+                aria-expanded="false"
+                aria-controls="model-menu"
+              >
+                <span class="dropdown-copy">
+                  <span class="dropdown-value" id="model-value">GPT-5.4</span>
+                  <span class="dropdown-meta" id="model-meta">Latest flagship model</span>
+                </span>
+                <span class="dropdown-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="dropdown-menu hidden" id="model-menu" role="listbox" aria-labelledby="model-trigger"></div>
+            </div>
           </div>
           <div class="field">
             <label>Boxer URL</label>

@@ -4,18 +4,21 @@
  */
 
 import type { BugBountyAPI } from "../preload.js";
-import type { TrackState, PendingInstall, ModelProvider } from "../../src/types/index.js";
+import type { TrackState, PendingInstall } from "../../src/types/index.js";
+import { DEFAULT_MODEL, MODEL_OPTIONS } from "../../src/types/provider.js";
 
 declare const window: Window & { bugBounty: BugBountyAPI };
 
 const api = window.bugBounty;
 
-const DEFAULT_MODELS: Record<ModelProvider, string> = {
-  claude_code: "sonnet",
-  openai: "gpt-5",
+type DropdownOption = {
+  value: string;
+  label: string;
+  description?: string;
 };
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
 
 const startBtn = el<HTMLButtonElement>("start-btn");
 const tracksContainer = el("tracks-container");
@@ -29,16 +32,214 @@ const permJustification = el("perm-justification");
 const permCommand = el("perm-command");
 const permApprove = el<HTMLButtonElement>("perm-approve");
 const permDeny = el<HTMLButtonElement>("perm-deny");
-const providerSelect = el<HTMLSelectElement>("model-provider");
 const modelInput = el<HTMLInputElement>("model-name");
 
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
-providerSelect.addEventListener("change", () => {
-  const provider = providerSelect.value as ModelProvider;
-  modelInput.value = DEFAULT_MODELS[provider] ?? "";
+type DropdownController = {
+  root: HTMLElement;
+  close: () => void;
+  setOptions: (options: readonly DropdownOption[], preferredValue?: string, emitChange?: boolean) => void;
+  setValue: (value: string, emitChange?: boolean) => void;
+};
+
+const dropdowns = new Set<DropdownController>();
+
+function createDropdown(config: {
+  root: HTMLElement;
+  input: HTMLInputElement;
+  trigger: HTMLButtonElement;
+  valueLabel: HTMLElement;
+  metaLabel: HTMLElement;
+  menu: HTMLElement;
+  options: readonly DropdownOption[];
+  onChange?: (value: string) => void;
+}): DropdownController {
+  let options = [...config.options];
+  let controller: DropdownController;
+
+  const optionButtons = (): HTMLButtonElement[] =>
+    Array.from(config.menu.querySelectorAll<HTMLButtonElement>(".dropdown-option"));
+
+  const close = (): void => {
+    config.root.classList.remove("open");
+    config.menu.classList.add("hidden");
+    config.trigger.setAttribute("aria-expanded", "false");
+  };
+
+  const open = (): void => {
+    for (const dropdown of dropdowns) {
+      if (dropdown !== controller) dropdown.close();
+    }
+    config.root.classList.add("open");
+    config.menu.classList.remove("hidden");
+    config.trigger.setAttribute("aria-expanded", "true");
+  };
+
+  const render = (): void => {
+    const selected = options.find((option) => option.value === config.input.value) ?? options[0];
+    if (!selected) return;
+
+    config.input.value = selected.value;
+    config.valueLabel.textContent = selected.label;
+    config.metaLabel.textContent = selected.description ?? "";
+
+    config.menu.innerHTML = "";
+
+    for (const option of options) {
+      const button = document.createElement("button");
+      const isSelected = option.value === config.input.value;
+
+      button.type = "button";
+      button.className = `dropdown-option${isSelected ? " selected" : ""}`;
+      button.role = "option";
+      button.dataset.value = option.value;
+      button.setAttribute("aria-selected", String(isSelected));
+
+      const copy = document.createElement("span");
+      copy.className = "dropdown-option-main";
+
+      const label = document.createElement("span");
+      label.className = "dropdown-option-label";
+      label.textContent = option.label;
+
+      const description = document.createElement("span");
+      description.className = "dropdown-option-description";
+      description.textContent = option.description ?? "";
+
+      const check = document.createElement("span");
+      check.className = "dropdown-option-check";
+      check.setAttribute("aria-hidden", "true");
+
+      copy.append(label, description);
+      button.append(copy, check);
+      button.addEventListener("click", () => {
+        setValue(option.value);
+        close();
+        config.trigger.focus();
+      });
+
+      config.menu.appendChild(button);
+    }
+  };
+
+  const setValue = (value: string, emitChange = true): void => {
+    const selected = options.find((option) => option.value === value);
+    if (!selected) return;
+
+    const changed = config.input.value !== selected.value;
+    config.input.value = selected.value;
+    render();
+
+    if (changed && emitChange) {
+      config.onChange?.(selected.value);
+    }
+  };
+
+  const setOptions = (
+    nextOptions: readonly DropdownOption[],
+    preferredValue = config.input.value,
+    emitChange = false,
+  ): void => {
+    options = [...nextOptions];
+    const fallbackValue = options[0]?.value ?? "";
+    const nextValue = options.some((option) => option.value === preferredValue) ? preferredValue : fallbackValue;
+    setValue(nextValue, emitChange);
+  };
+
+  controller = {
+    root: config.root,
+    close,
+    setOptions,
+    setValue,
+  };
+
+  dropdowns.add(controller);
+
+  config.trigger.addEventListener("click", () => {
+    if (config.root.classList.contains("open")) {
+      close();
+      return;
+    }
+
+    open();
+    const selectedButton =
+      optionButtons().find((button) => button.dataset.value === config.input.value) ?? optionButtons()[0];
+    selectedButton?.focus();
+  });
+
+  config.trigger.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    open();
+    const buttons = optionButtons();
+    const nextButton =
+      buttons.find((button) => button.dataset.value === config.input.value) ??
+      (event.key === "ArrowUp" ? buttons.at(-1) : buttons[0]);
+    nextButton?.focus();
+  });
+
+  config.menu.addEventListener("keydown", (event) => {
+    const buttons = optionButtons();
+    const activeIndex = buttons.findIndex((button) => button === document.activeElement);
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      config.trigger.focus();
+      return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      const startIndex = activeIndex === -1 ? 0 : activeIndex;
+      const nextIndex = (startIndex + delta + buttons.length) % buttons.length;
+      buttons[nextIndex]?.focus();
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      const value = buttons[activeIndex]?.dataset.value;
+      if (value) {
+        setValue(value);
+        close();
+        config.trigger.focus();
+      }
+    }
+  });
+
+  render();
+  return controller;
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+
+  for (const dropdown of dropdowns) {
+    if (!dropdown.root.contains(target)) {
+      dropdown.close();
+    }
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  for (const dropdown of dropdowns) dropdown.close();
+});
+
+createDropdown({
+  root: el("model-dropdown"),
+  input: modelInput,
+  trigger: el<HTMLButtonElement>("model-trigger"),
+  valueLabel: el("model-value"),
+  metaLabel: el("model-meta"),
+  menu: el("model-menu"),
+  options: MODEL_OPTIONS,
 });
 
 el("pick-code").addEventListener("click", async () => {
@@ -51,8 +252,7 @@ startBtn.addEventListener("click", async () => {
   const goal = el<HTMLInputElement>("goal").value.trim();
   const scope = el<HTMLTextAreaElement>("scope").value.trim();
   const boxerUrl = el<HTMLInputElement>("boxer-url").value.trim();
-  const provider = providerSelect.value as ModelProvider;
-  const model = modelInput.value.trim();
+  const model = modelInput.value.trim() || DEFAULT_MODEL;
 
   if (!target || !goal || !scope) {
     alert("Target, Goal, and Scope are required.");
@@ -84,7 +284,7 @@ startBtn.addEventListener("click", async () => {
   startBtn.disabled = true;
   startBtn.textContent = "Starting...";
 
-  await api.startResearch(briefPath, boxerUrl, provider, model);
+  await api.startResearch(briefPath, boxerUrl, model);
   startPolling();
 
   welcome.style.display = "none";

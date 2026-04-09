@@ -12,11 +12,7 @@ import { runOrchestrator } from "../src/orchestrator/agent.js";
 import { readAllTrackStates } from "../src/loop/state.js";
 import type { PendingInstall } from "../src/types/state.js";
 import { PendingInstallSchema } from "../src/types/state.js";
-import {
-  DEFAULT_MODELS,
-  ModelProviderSchema,
-  RunModelConfigSchema,
-} from "../src/types/provider.js";
+import { RunModelConfigSchema } from "../src/types/provider.js";
 
 let mainWindow: BrowserWindow | null = null;
 let activeBoxer: BoxerClient | null = null;
@@ -58,16 +54,10 @@ app.on("window-all-closed", () => {
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 
 /** Start a research session from a brief. */
-ipcMain.handle(
-  "start-research",
-  async (_event, briefPath: string, boxerUrl: string, providerRaw: string, modelRaw: string) => {
+ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string) => {
   activeBoxer = new BoxerClient(boxerUrl);
+  const modelConfig = RunModelConfigSchema.parse({ model });
 
-  const provider = ModelProviderSchema.parse(providerRaw);
-  const model = modelRaw?.trim() || DEFAULT_MODELS[provider];
-  const modelConfig = RunModelConfigSchema.parse({ provider, model });
-
-  // Run orchestrator in background — events flow back via progress polling
   runOrchestrator(briefPath, activeBoxer, modelConfig).catch((err: unknown) => {
     mainWindow?.webContents.send("research-error", String(err));
   });

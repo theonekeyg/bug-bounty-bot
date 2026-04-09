@@ -7,7 +7,7 @@ import { parseArgs } from "util";
 import { existsSync } from "fs";
 import { BoxerClient } from "./sandbox/boxer.js";
 import { runOrchestrator } from "./orchestrator/agent.js";
-import { DEFAULT_MODELS } from "./types/provider.js";
+import { DEFAULT_MODEL } from "./types/provider.js";
 
 const { values } = parseArgs({
   options: {
@@ -33,10 +33,7 @@ console.log(`Brief:  ${values.brief}`);
 console.log(`Boxer:  ${values.boxer}`);
 console.log("─".repeat(60));
 
-runOrchestrator(values.brief, boxer, {
-  provider: "claude_code",
-  model: DEFAULT_MODELS.claude_code,
-}).catch((err: unknown) => {
+runOrchestrator(values.brief, boxer, { model: DEFAULT_MODEL }).catch((err: unknown) => {
   console.error("Fatal error:", err);
   process.exit(1);
 });

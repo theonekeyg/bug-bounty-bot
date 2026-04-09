@@ -1,18 +1,8 @@
-/**
- * Electron preload — exposes a type-safe IPC bridge to the renderer.
- * contextIsolation: true means this is the only way renderer can talk to main.
- */
-
 import { contextBridge, ipcRenderer } from "electron";
-import type { TrackState, PendingInstall, ModelProvider } from "../src/types/index.js";
+import type { TrackState, PendingInstall } from "../src/types/index.js";
 
 export interface BugBountyAPI {
-  startResearch: (
-    briefPath: string,
-    boxerUrl: string,
-    provider: ModelProvider,
-    model: string,
-  ) => Promise<{ started: boolean }>;
+  startResearch: (briefPath: string, boxerUrl: string, model: string) => Promise<{ started: boolean }>;
   writeBrief: (content: string) => Promise<string>;
   readFile: (path: string) => Promise<string | null>;
   pickFile: (filters?: Electron.FileFilter[]) => Promise<string | null>;
@@ -27,15 +17,14 @@ export interface BugBountyAPI {
 }
 
 contextBridge.exposeInMainWorld("bugBounty", {
-  startResearch: (briefPath: string, boxerUrl: string, provider: ModelProvider, model: string) =>
-    ipcRenderer.invoke("start-research", briefPath, boxerUrl, provider, model),
+  startResearch: (briefPath: string, boxerUrl: string, model: string) =>
+    ipcRenderer.invoke("start-research", briefPath, boxerUrl, model),
 
   writeBrief: (content: string) => ipcRenderer.invoke("write-brief", content),
 
   readFile: (path: string) => ipcRenderer.invoke("read-file", path),
 
-  pickFile: (filters?: Electron.FileFilter[]) =>
-    ipcRenderer.invoke("pick-file", filters),
+  pickFile: (filters?: Electron.FileFilter[]) => ipcRenderer.invoke("pick-file", filters),
 
   getProgress: () => ipcRenderer.invoke("get-progress"),
 
