@@ -10,7 +10,7 @@ import { existsSync } from "fs";
 import { BoxerClient } from "../src/sandbox/boxer.js";
 import { runOrchestrator } from "../src/orchestrator/agent.js";
 import { ipcBus, type ResearchLogEvent } from "../src/ipc/bus.js";
-import { readAllTrackStates } from "../src/loop/state.js";
+import { readAllTrackStates, resetSessionState } from "../src/loop/state.js";
 import type { PendingInstall } from "../src/types/state.js";
 import { PendingInstallSchema } from "../src/types/state.js";
 import { RunModelConfigSchema } from "../src/types/provider.js";
@@ -90,6 +90,7 @@ app.on("window-all-closed", () => {
 ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string) => {
   activeBoxer = new BoxerClient(boxerUrl);
   const modelConfig = RunModelConfigSchema.parse({ model });
+  await resetSessionState();
 
   runOrchestrator(briefPath, activeBoxer, modelConfig).catch((err: unknown) => {
     mainWindow?.webContents.send("research-error", String(err));

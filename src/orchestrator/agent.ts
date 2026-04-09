@@ -6,6 +6,7 @@
 import { readFile } from "fs/promises";
 import { runAgent } from "../sdk/client.js";
 import {
+  appendProgress,
   writePlan,
   readAllTrackStates,
   allTracksTerminal,
@@ -17,6 +18,7 @@ import { parseBrief } from "../types/index.js";
 import { runRalphLoop, type LoopIteration } from "../loop/runner.js";
 import { runResearcher } from "../researcher/agent.js";
 import type { RunModelConfig } from "../types/provider.js";
+import { getModelInfo, getModelProvider } from "../types/provider.js";
 import { runReporter } from "../reporter/agent.js";
 
 const SYSTEM_PROMPT = `You are the Orchestrator in an autonomous security research system.
@@ -39,6 +41,12 @@ export async function runOrchestrator(
   modelConfig: RunModelConfig,
 ): Promise<void> {
   await initStateDir();
+  const provider = getModelProvider(modelConfig.model);
+  const modelInfo = getModelInfo(modelConfig.model);
+  await appendProgress(
+    "orchestrator",
+    `[run] Requested model: ${modelConfig.model} (${modelInfo.label}) via ${provider}`,
+  );
   const raw = await readFile(briefPath, "utf-8");
   const brief = parseBrief(raw);
   let tracksCreated = false;

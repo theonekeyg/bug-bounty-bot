@@ -3,7 +3,7 @@
  * Every agent must use these — never raw fs calls — so state format stays consistent.
  */
 
-import { readFile, writeFile, mkdir, appendFile } from "fs/promises";
+import { readFile, writeFile, mkdir, appendFile, rm } from "fs/promises";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { z } from "zod";
@@ -109,6 +109,11 @@ export function allTracksTerminal(states: TrackState[]): boolean {
 export async function initStateDir(): Promise<void> {
   await mkdir(join(STATE_DIR, "research"), { recursive: true });
   await mkdir(OUTPUT_DIR, { recursive: true });
+}
+
+export async function resetSessionState(): Promise<void> {
+  await rm(STATE_DIR, { recursive: true, force: true });
+  await initStateDir();
 }
 
 // ── Zod passthrough for status.json ──────────────────────────────────────────

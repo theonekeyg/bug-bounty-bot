@@ -29,6 +29,15 @@ const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as
 
 
 const startBtn = el<HTMLButtonElement>("start-btn");
+const targetInput = el<HTMLInputElement>("target");
+const goalInput = el<HTMLInputElement>("goal");
+const scopeInput = el<HTMLTextAreaElement>("scope");
+const codePathInput = el<HTMLInputElement>("code-path");
+const pickCodeBtn = el<HTMLButtonElement>("pick-code");
+const linksInput = el<HTMLInputElement>("links");
+const contextInput = el<HTMLTextAreaElement>("context");
+const modelTrigger = el<HTMLButtonElement>("model-trigger");
+const boxerUrlInput = el<HTMLInputElement>("boxer-url");
 const tracksContainer = el("tracks-container");
 const welcome = el("welcome");
 const progressView = el("progress-view");
@@ -46,6 +55,18 @@ const openaiKeyInput = el<HTMLInputElement>("openai-key");
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+function setSessionConfigLocked(locked: boolean): void {
+  targetInput.disabled = locked;
+  goalInput.disabled = locked;
+  scopeInput.disabled = locked;
+  codePathInput.disabled = locked;
+  pickCodeBtn.disabled = locked;
+  linksInput.disabled = locked;
+  contextInput.disabled = locked;
+  modelTrigger.disabled = locked;
+  boxerUrlInput.disabled = locked;
+}
 
 type DropdownController = {
   root: HTMLElement;
@@ -390,8 +411,8 @@ function createModelPicker(): void {
     if (event.key === "Escape") { event.preventDefault(); close(); trigger.focus(); }
   });
 
-  // Set initial value
-  if (!modelInput.value) modelInput.value = DEFAULT_MODEL;
+  // The runtime default lives in TypeScript; do not trust static HTML defaults.
+  modelInput.value = DEFAULT_MODEL;
   updateTrigger();
 }
 
@@ -415,10 +436,10 @@ el("pick-code").addEventListener("click", async () => {
 });
 
 startBtn.addEventListener("click", async () => {
-  const target = el<HTMLInputElement>("target").value.trim();
-  const goal = el<HTMLInputElement>("goal").value.trim();
-  const scope = el<HTMLTextAreaElement>("scope").value.trim();
-  const boxerUrl = el<HTMLInputElement>("boxer-url").value.trim();
+  const target = targetInput.value.trim();
+  const goal = goalInput.value.trim();
+  const scope = scopeInput.value.trim();
+  const boxerUrl = boxerUrlInput.value.trim();
   const model = modelInput.value.trim() || DEFAULT_MODEL;
 
   if (!target || !goal || !scope) {
@@ -431,9 +452,9 @@ startBtn.addEventListener("click", async () => {
     return;
   }
 
-  const codePath = el<HTMLInputElement>("code-path").value.trim();
-  const links = el<HTMLInputElement>("links").value.trim();
-  const context = el<HTMLTextAreaElement>("context").value.trim();
+  const codePath = codePathInput.value.trim();
+  const links = linksInput.value.trim();
+  const context = contextInput.value.trim();
 
   const briefContent = [
     `TARGET: ${target}`,
@@ -450,6 +471,7 @@ startBtn.addEventListener("click", async () => {
 
   startBtn.disabled = true;
   startBtn.textContent = "Starting...";
+  setSessionConfigLocked(true);
 
   await api.startResearch(briefPath, boxerUrl, model);
   startPolling();
@@ -589,5 +611,6 @@ api.onResearchError((err: string) => {
   console.error("Research error:", err);
   startBtn.disabled = false;
   startBtn.textContent = "Start Research";
+  setSessionConfigLocked(false);
   alert(`Research error: ${err}`);
 });
