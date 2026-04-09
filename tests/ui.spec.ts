@@ -19,6 +19,7 @@ async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
     args: ["--no-sandbox", APP_PATH],
     executablePath: join(import.meta.dirname, "..", "node_modules", ".bin", "electron"),
+    env: { ...process.env, ELECTRON_IS_TEST: "1" },
   });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
@@ -107,8 +108,6 @@ test.describe("Bug Bounty Agent UI", () => {
 
     const btnText = await page.locator("#start-btn").textContent();
     const btnDisabled = await page.locator("#start-btn").isDisabled();
-
-    await page.screenshot({ path: "tests/screenshots/after-start-click.png", fullPage: true });
 
     // Must have SOME feedback — button changed or dialog shown
     const hasFeedback = btnText !== "Start Research" || btnDisabled || dialogMessages.length > 0;

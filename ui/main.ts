@@ -52,6 +52,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
     },
+    show: process.env["ELECTRON_IS_TEST"] !== "1",
     titleBarStyle: "hiddenInset",
     backgroundColor: "#0f0f0f",
   });
