@@ -22,12 +22,12 @@ import { runReporter } from "../reporter/agent.js";
 import { emitSessionEvent } from "../ipc/bus.js";
 import { createSession, updateSessionStatus, upsertTrack } from "../db/sessions.js";
 
-const SYSTEM_PROMPT_TEMPLATE = (stateDir: string) => `You are the Orchestrator in an autonomous security research system.
+const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, maxTracks: number) => `You are the Orchestrator in an autonomous security research system.
 
 Your job:
 1. Read the user's brief and understand the target, scope, and goal.
 2. Identify the attack surface — all vulnerability classes and entry points worth investigating.
-3. Define research tracks — one focused, falsifiable hypothesis per track (max 6).
+3. Define research tracks — one focused, falsifiable hypothesis per track (max ${maxTracks}).
 4. Write ${stateDir}/plan.md with the attack surface map and track list.
 5. For each track, create:
    - ${stateDir}/research/<track-id>/hypothesis.md  (the hypothesis)
@@ -187,8 +187,8 @@ export async function runOrchestrator(
       });
       const result = await runAgent({
         modelConfig,
-        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir()),
-        prompt: buildPrompt(brief, raw),
+        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir(), modelConfig.maxTracks),
+        prompt: buildPrompt(brief, raw, modelConfig.maxTracks),
         cwd: process.cwd(),
         sessionId,
         trackId: "orchestrator",
@@ -254,7 +254,7 @@ export async function runOrchestrator(
   );
 }
 
-function buildPrompt(brief: ReturnType<typeof parseBrief>, rawBrief: string): string {
+function buildPrompt(brief: ReturnType<typeof parseBrief>, rawBrief: string, maxTracks: number): string {
   return `Start a new security research engagement.
 
 ## Raw Brief
@@ -268,5 +268,5 @@ ${brief.code ? `- Code: ${brief.code.join(", ")}` : ""}
 ${brief.links ? `- Links: ${brief.links.join(", ")}` : ""}
 ${brief.context ? `- Context: ${brief.context}` : ""}
 
-Map the attack surface, define tracks (max 6), write all state files, then respond with ORCHESTRATION_DONE.`;
+Map the attack surface, define tracks (max ${maxTracks}), write all state files, then respond with ORCHESTRATION_DONE.`;
 }

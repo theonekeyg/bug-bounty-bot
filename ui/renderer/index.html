@@ -1284,6 +1284,20 @@
             </div>
 
             <details class="api-keys-section">
+              <summary class="api-keys-toggle">Advanced</summary>
+              <div class="api-keys-body">
+                <div class="field">
+                  <label>Max Subagents</label>
+                  <div style="display:flex; align-items:center; gap:10px">
+                    <input type="range" id="max-tracks" min="1" max="12" value="6" style="flex:1; accent-color:var(--accent)" />
+                    <span id="max-tracks-label" style="font-size:13px; color:var(--text); min-width:16px; text-align:right">6</span>
+                  </div>
+                  <p class="api-keys-note" style="margin-top:4px">Max parallel researcher agents the orchestrator can spawn.</p>
+                </div>
+              </div>
+            </details>
+
+            <details class="api-keys-section">
               <summary class="api-keys-toggle">API Keys</summary>
               <div class="api-keys-body">
                 <div class="field">

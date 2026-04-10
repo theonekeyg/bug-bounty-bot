@@ -38,7 +38,7 @@ console.log("─".repeat(60));
 
 await initDb(values.db);
 
-runOrchestrator(values.brief, boxer, { model: DEFAULT_MODEL }).catch((err: unknown) => {
+runOrchestrator(values.brief, boxer, { model: DEFAULT_MODEL, maxTracks: 6 }).catch((err: unknown) => {
   console.error("Fatal error:", err);
   process.exit(1);
 });

@@ -141,9 +141,9 @@ ipcMain.handle("get-session-events", async (_event, sessionId: string) => {
 });
 
 /** Start a new research session from a brief. */
-ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string) => {
+ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string, maxTracks: number) => {
   activeBoxer = new BoxerClient(boxerUrl);
-  const modelConfig = RunModelConfigSchema.parse({ model });
+  const modelConfig = RunModelConfigSchema.parse({ model, maxTracks: maxTracks ?? 6 });
 
   // runOrchestrator creates the session in DB and returns after session is complete.
   // We don't await here — fire and forget so the IPC call returns immediately.

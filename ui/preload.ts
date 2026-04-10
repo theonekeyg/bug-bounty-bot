@@ -34,7 +34,7 @@ export interface BugBountyAPI {
   resumeResearch: (sessionId: string) => Promise<{ started: boolean; sessionId: string } | { error: string }>;
 
   // Research lifecycle
-  startResearch: (briefPath: string, boxerUrl: string, model: string) => Promise<{ started: boolean; sessionId: string | null }>;
+  startResearch: (briefPath: string, boxerUrl: string, model: string, maxTracks: number) => Promise<{ started: boolean; sessionId: string | null }>;
   writeBrief: (content: string) => Promise<string>;
   readFile: (path: string) => Promise<string | null>;
   pickFile: (filters?: Electron.FileFilter[]) => Promise<string | null>;
@@ -70,8 +70,8 @@ contextBridge.exposeInMainWorld("bugBounty", {
   setActiveSession: (sessionId: string) => ipcRenderer.invoke("set-active-session", sessionId),
   resumeResearch: (sessionId: string) => ipcRenderer.invoke("resume-research", sessionId),
 
-  startResearch: (briefPath: string, boxerUrl: string, model: string) =>
-    ipcRenderer.invoke("start-research", briefPath, boxerUrl, model),
+  startResearch: (briefPath: string, boxerUrl: string, model: string, maxTracks: number) =>
+    ipcRenderer.invoke("start-research", briefPath, boxerUrl, model, maxTracks),
 
   writeBrief: (content: string) => ipcRenderer.invoke("write-brief", content),
 

@@ -95,6 +95,8 @@ const permCommand = el("perm-command");
 const permApprove = el<HTMLButtonElement>("perm-approve");
 const permDeny = el<HTMLButtonElement>("perm-deny");
 const modelInput = el<HTMLInputElement>("model-name");
+const maxTracksInput = el<HTMLInputElement>("max-tracks");
+const maxTracksLabel = el("max-tracks-label");
 const openaiKeyInput = el<HTMLInputElement>("openai-key");
 const openrouterKeyInput = el<HTMLInputElement>("openrouter-key");
 const runtimeSessionCard = el("runtime-session-card");
@@ -136,6 +138,7 @@ function setSessionConfigLocked(locked: boolean): void {
   contextInput.disabled = locked;
   modelTrigger.disabled = locked;
   boxerUrlInput.disabled = locked;
+  maxTracksInput.disabled = locked;
 }
 
 function formatEventTime(timestamp: string): string {
@@ -1072,6 +1075,10 @@ el("pick-code").addEventListener("click", async () => {
   if (path) el<HTMLInputElement>("code-path").value = path;
 });
 
+maxTracksInput.addEventListener("input", () => {
+  maxTracksLabel.textContent = maxTracksInput.value;
+});
+
 startBtn.addEventListener("click", async () => {
   const target = targetInput.value.trim();
   const goal = goalInput.value.trim();
@@ -1121,7 +1128,8 @@ startBtn.addEventListener("click", async () => {
   runtimeHealthLabel.textContent = "Preparing";
   runtimeSessionCard.classList.remove("hidden");
 
-  const result = await api.startResearch(briefPath, boxerUrl, model);
+  const maxTracks = parseInt(maxTracksInput.value, 10) || 6;
+  const result = await api.startResearch(briefPath, boxerUrl, model, maxTracks);
   if (result.sessionId) {
     activeSessionId = result.sessionId;
     activeSessionStateDir = await api.getSessionStateDir(result.sessionId);

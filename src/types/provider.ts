@@ -47,7 +47,10 @@ export const SUPPORTED_MODELS = [
 
 export type SupportedModel = (typeof SUPPORTED_MODELS)[number];
 export const SupportedModelSchema = z.enum(SUPPORTED_MODELS);
-export const RunModelConfigSchema = z.object({ model: SupportedModelSchema });
+export const RunModelConfigSchema = z.object({
+  model: SupportedModelSchema,
+  maxTracks: z.number().int().min(1).max(20).default(6),
+});
 export type RunModelConfig = z.infer<typeof RunModelConfigSchema>;
 
 export const DEFAULT_MODEL: SupportedModel = "claude-sonnet-4-6";
