@@ -3,7 +3,9 @@ import OpenAI from "openai";
 import type { RunModelConfig, SupportedModel } from "../types/provider.js";
 import { getModelProvider } from "../types/provider.js";
 import { ipcBus, emitRuntimeEvent } from "../ipc/bus.js";
+import type { AgentThinkingEvent, AgentTurnEvent, AgentToolProgressEvent } from "../ipc/bus.js";
 import { appendProgress } from "../loop/state.js";
+import type { AgentTurnInfo } from "../types/activity.js";
 
 let _openai: OpenAI | null = null;
 
@@ -19,6 +21,7 @@ export interface AgentRunOptions {
   cwd?: string;
   sessionId?: string; // for DB event persistence and progress logging
   trackId?: string;   // used to stream progress back to the UI
+  iteration?: number; // Ralph Loop iteration index (for activity tracking)
   allowedTools?: string[];
   persistHeartbeats?: boolean;
 }
@@ -240,31 +243,172 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       stage: "Waiting For Model",
     });
 
+    // Per-turn state for activity capture
+    let turnIndex = 0;
+    // tool_use_id → { dbId, startMs } for correlating results
+    const pendingToolCalls = new Map<string, { dbId: string; startMs: number }>();
+
     try {
       for await (const message of stream) {
-      // Stream text deltas to the UI in real time
-      if (message.type === "stream_event") {
-        const event = message.event;
-        if (
-          event.type === "content_block_delta" &&
-          event.delta.type === "text_delta"
-        ) {
-          if (!announcedOutput) {
-            emitRuntimeEvent({
-              scope: opts.trackId === "orchestrator" ? "session" : "track",
-              kind: "stage_changed",
-              severity: "info",
-              trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
-              title: "Model is producing output",
-              detail: opts.modelConfig.model,
-              stage: "Generating Output",
-            });
-            announcedOutput = true;
-          }
-          emitResearchLog(opts.trackId, event.delta.text);
-        }
-      }
 
+        // ── Stream deltas (text + thinking) ──────────────────────────────────
+        if (message.type === "stream_event") {
+          const event = message.event;
+          if (event.type === "content_block_delta") {
+            if (event.delta.type === "text_delta") {
+              if (!announcedOutput) {
+                emitRuntimeEvent({
+                  scope: opts.trackId === "orchestrator" ? "session" : "track",
+                  kind: "stage_changed",
+                  severity: "info",
+                  trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+                  title: "Model is producing output",
+                  detail: opts.modelConfig.model,
+                  stage: "Generating Output",
+                });
+                announcedOutput = true;
+              }
+              emitResearchLog(opts.trackId, event.delta.text);
+            } else if (event.delta.type === "thinking_delta" && opts.sessionId && opts.trackId) {
+              const thinkingEvent: AgentThinkingEvent = {
+                sessionId: opts.sessionId,
+                trackId: opts.trackId,
+                thinking: event.delta.thinking,
+              };
+              ipcBus.emit("agent-thinking", thinkingEvent);
+            }
+          }
+        }
+
+        // ── Completed assistant turn ──────────────────────────────────────────
+        if (message.type === "assistant" && opts.sessionId && opts.trackId) {
+          turnIndex++;
+          const msg = message.message;
+
+          let thinkingText = "";
+          let textOutput = "";
+          const toolUseBlocks: Array<{ id: string; name: string; input: unknown }> = [];
+
+          for (const block of msg.content) {
+            if (block.type === "thinking") {
+              thinkingText += block.thinking;
+            } else if (block.type === "text") {
+              textOutput += block.text;
+            } else if (block.type === "tool_use") {
+              toolUseBlocks.push({ id: block.id, name: block.name, input: block.input });
+            }
+          }
+
+          try {
+            const { insertAgentTurn, insertToolCall } = await import("../db/activity.js");
+            const turnId = await insertAgentTurn({
+              sessionId: opts.sessionId,
+              trackId: opts.trackId,
+              iteration: opts.iteration ?? 1,
+              turnIndex,
+              thinkingText,
+              textOutput,
+              inputTokens: msg.usage.input_tokens,
+              outputTokens: msg.usage.output_tokens,
+              cacheReadTokens: msg.usage.cache_read_input_tokens ?? 0,
+              cacheWriteTokens: msg.usage.cache_creation_input_tokens ?? 0,
+            });
+
+            const toolCallIds: string[] = [];
+            for (const tu of toolUseBlocks) {
+              const tcId = await insertToolCall({
+                turnId,
+                toolUseId: tu.id,
+                toolName: tu.name,
+                toolInput: JSON.stringify(tu.input),
+              });
+              pendingToolCalls.set(tu.id, { dbId: tcId, startMs: Date.now() });
+              toolCallIds.push(tcId);
+            }
+
+            const turnInfo: AgentTurnInfo = {
+              id: turnId,
+              sessionId: opts.sessionId,
+              trackId: opts.trackId,
+              iteration: opts.iteration ?? 1,
+              turnIndex,
+              thinkingText,
+              textOutput,
+              inputTokens: msg.usage.input_tokens,
+              outputTokens: msg.usage.output_tokens,
+              cacheReadTokens: msg.usage.cache_read_input_tokens ?? 0,
+              cacheWriteTokens: msg.usage.cache_creation_input_tokens ?? 0,
+              startedAt: new Date().toISOString(),
+              completedAt: new Date().toISOString(),
+              toolCalls: toolUseBlocks.map((tu, i) => ({
+                id: toolCallIds[i] ?? "",
+                toolUseId: tu.id,
+                toolName: tu.name,
+                toolInput: JSON.stringify(tu.input),
+                toolOutput: "",
+                outcome: "pending",
+                elapsedMs: 0,
+                startedAt: new Date().toISOString(),
+                completedAt: null,
+              })),
+            };
+            const turnEvent: AgentTurnEvent = {
+              sessionId: opts.sessionId,
+              trackId: opts.trackId,
+              turn: turnInfo,
+            };
+            ipcBus.emit("agent-turn", turnEvent);
+          } catch (dbErr) {
+            console.error("[client] Failed to persist agent turn:", dbErr);
+          }
+        }
+
+        // ── Tool results (user message with tool_result blocks) ───────────────
+        if (message.type === "user" && opts.sessionId) {
+          const content = message.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (
+                typeof block === "object" &&
+                block !== null &&
+                "type" in block &&
+                (block as { type: string }).type === "tool_result"
+              ) {
+                const tr = block as { type: string; tool_use_id: string; content?: unknown; is_error?: boolean };
+                const pending = pendingToolCalls.get(tr.tool_use_id);
+                if (pending) {
+                  const elapsedMs = Date.now() - pending.startMs;
+                  const raw = typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content ?? "");
+                  try {
+                    const { updateToolCallResult } = await import("../db/activity.js");
+                    await updateToolCallResult(pending.dbId, {
+                      toolOutput: raw,
+                      outcome: tr.is_error ? "error" : "ok",
+                      elapsedMs,
+                    });
+                  } catch (dbErr) {
+                    console.error("[client] Failed to persist tool result:", dbErr);
+                  }
+                  pendingToolCalls.delete(tr.tool_use_id);
+                }
+              }
+            }
+          }
+        }
+
+        // ── Tool progress ticks ───────────────────────────────────────────────
+        if (message.type === "tool_progress" && opts.sessionId && opts.trackId) {
+          const progressEvent: AgentToolProgressEvent = {
+            sessionId: opts.sessionId,
+            trackId: opts.trackId,
+            toolUseId: message.tool_use_id,
+            toolName: message.tool_name,
+            elapsedSec: message.elapsed_time_seconds,
+          };
+          ipcBus.emit("agent-tool-progress", progressEvent);
+        }
+
+        // ── Final result ──────────────────────────────────────────────────────
         if (message.type === "result") {
           if (message.subtype !== "success") {
             const error = new Error(`Claude agent error (${message.subtype}): ${message.errors.join(", ")}`);

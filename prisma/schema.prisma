@@ -47,3 +47,36 @@ model EventRecord {
   status    String?
   createdAt DateTime @default(now())
 }
+
+model AgentTurn {
+  id               String     @id @default(cuid())
+  sessionId        String
+  trackId          String
+  iteration        Int
+  turnIndex        Int
+  thinkingText     String     @default("")
+  textOutput       String     @default("")
+  inputTokens      Int        @default(0)
+  outputTokens     Int        @default(0)
+  cacheReadTokens  Int        @default(0)
+  cacheWriteTokens Int        @default(0)
+  startedAt        DateTime   @default(now())
+  completedAt      DateTime?
+  toolCalls        ToolCall[]
+
+  @@index([sessionId, trackId])
+}
+
+model ToolCall {
+  id          String     @id @default(cuid())
+  turnId      String
+  turn        AgentTurn  @relation(fields: [turnId], references: [id])
+  toolUseId   String     @unique
+  toolName    String
+  toolInput   String     @default("")
+  toolOutput  String     @default("")
+  outcome     String     @default("pending")
+  elapsedMs   Int        @default(0)
+  startedAt   DateTime   @default(now())
+  completedAt DateTime?
+}

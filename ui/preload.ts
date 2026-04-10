@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { TrackState, PendingInstall, RuntimeEvent } from "../src/types/index.js";
 import type { SessionInfo } from "../src/db/sessions.js";
+import type { AgentTurnInfo } from "../src/types/activity.js";
+import type { AgentThinkingEvent, AgentTurnEvent, AgentToolProgressEvent } from "../src/ipc/bus.js";
 
-export type { SessionInfo };
+export type { SessionInfo, AgentTurnInfo };
 
 export interface AppSettings {
   openaiKey: string;
@@ -44,10 +46,16 @@ export interface BugBountyAPI {
     install: PendingInstall,
   ) => Promise<{ approved: boolean; output?: string; exitCode?: number; error?: string }>;
 
+  // Activity
+  getAgentActivity: (sessionId: string, trackId: string) => Promise<AgentTurnInfo[]>;
+
   // Event streams
   onResearchError: (cb: (err: string) => void) => void;
   onResearchLog: (cb: (trackId: string, text: string) => void) => void;
   onRuntimeEvent: (cb: (event: RuntimeEvent) => void) => void;
+  onAgentThinking: (cb: (event: AgentThinkingEvent) => void) => void;
+  onAgentTurn: (cb: (event: AgentTurnEvent) => void) => void;
+  onAgentToolProgress: (cb: (event: AgentToolProgressEvent) => void) => void;
 
   // Settings
   getSettings: () => Promise<AppSettings>;
@@ -78,6 +86,9 @@ contextBridge.exposeInMainWorld("bugBounty", {
   resolveInstall: (trackId: string, approved: boolean, install: PendingInstall) =>
     ipcRenderer.invoke("resolve-install", trackId, approved, install),
 
+  getAgentActivity: (sessionId: string, trackId: string) =>
+    ipcRenderer.invoke("get-agent-activity", sessionId, trackId),
+
   onResearchError: (cb: (err: string) => void) =>
     ipcRenderer.on("research-error", (_event, err: string) => cb(err)),
 
@@ -88,6 +99,15 @@ contextBridge.exposeInMainWorld("bugBounty", {
 
   onRuntimeEvent: (cb: (event: RuntimeEvent) => void) =>
     ipcRenderer.on("runtime-event", (_event, event: RuntimeEvent) => cb(event)),
+
+  onAgentThinking: (cb: (event: AgentThinkingEvent) => void) =>
+    ipcRenderer.on("agent-thinking", (_event, event: AgentThinkingEvent) => cb(event)),
+
+  onAgentTurn: (cb: (event: AgentTurnEvent) => void) =>
+    ipcRenderer.on("agent-turn", (_event, event: AgentTurnEvent) => cb(event)),
+
+  onAgentToolProgress: (cb: (event: AgentToolProgressEvent) => void) =>
+    ipcRenderer.on("agent-tool-progress", (_event, event: AgentToolProgressEvent) => cb(event)),
 
   getSettings: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings: AppSettings) => ipcRenderer.invoke("save-settings", settings),

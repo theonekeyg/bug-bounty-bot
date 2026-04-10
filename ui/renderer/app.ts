@@ -3,8 +3,9 @@
  * Communicates with main process via window.bugBounty (preload bridge).
  */
 
-import type { BugBountyAPI, SessionInfo } from "../preload.js";
+import type { BugBountyAPI, SessionInfo, AgentTurnInfo } from "../preload.js";
 import type { TrackState, PendingInstall, RuntimeEvent } from "../../src/types/index.js";
+import type { AgentThinkingEvent, AgentTurnEvent, AgentToolProgressEvent } from "../../src/ipc/bus.js";
 import {
   DEFAULT_MODEL,
   PROVIDER_MODELS,
@@ -61,10 +62,28 @@ const overviewTrackGrid = el("overview-track-grid");
 const actionCenter = el("action-center");
 const overviewTab = el<HTMLButtonElement>("overview-tab");
 const tracksTab = el<HTMLButtonElement>("tracks-tab");
+const activityTab = el<HTMLButtonElement>("activity-tab");
+const reasoningTab = el<HTMLButtonElement>("reasoning-tab");
 const debugTab = el<HTMLButtonElement>("debug-tab");
 const overviewPanel = el("overview-panel");
 const tracksPanel = el("tracks-panel");
+const activityPanel = el("activity-panel");
+const reasoningPanel = el("reasoning-panel");
 const debugPanel = el("debug-panel");
+// Activity panel elements
+const activityAgentBadge = el("activity-agent-badge");
+const activityAgentName = el("activity-agent-name");
+const activityStats = el("activity-stats");
+const activityEmpty = el("activity-empty");
+const activityIterations = el("activity-iterations");
+// Reasoning panel elements
+const reasoningAgentBadge = el("reasoning-agent-badge");
+const reasoningAgentName = el("reasoning-agent-name");
+const tokenTotals = el("token-totals");
+const reasoningEmpty = el("reasoning-empty");
+const reasoningTurns = el("reasoning-turns");
+const liveThinking = el("live-thinking");
+const liveThinkingText = el("live-thinking-text");
 const tracksGrid = el("tracks-grid");
 const tracksPanelCaption = el("tracks-panel-caption");
 const progressLog = el("progress-log");
@@ -92,7 +111,9 @@ let activeSessionStateDir: string | null = null;
 let activeTrackId: string | null = null;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
-let activeView: "overview" | "tracks" | "debug" = "overview";
+let activeView: "overview" | "tracks" | "activity" | "reasoning" | "debug" = "overview";
+let activityTrackId: string | null = null;
+let activityPollInterval: ReturnType<typeof setInterval> | null = null;
 let runtimeEvents: RuntimeEvent[] = [];
 let sessionStage = "Starting";
 let sessionHeadlineText = "Preparing session...";
@@ -215,14 +236,27 @@ function resetRuntimeState(): void {
   renderActionCenter();
 }
 
-function setActiveView(view: "overview" | "tracks" | "debug"): void {
+function setActiveView(view: "overview" | "tracks" | "activity" | "reasoning" | "debug"): void {
   activeView = view;
   overviewTab.classList.toggle("active", view === "overview");
   tracksTab.classList.toggle("active", view === "tracks");
+  activityTab.classList.toggle("active", view === "activity");
+  reasoningTab.classList.toggle("active", view === "reasoning");
   debugTab.classList.toggle("active", view === "debug");
   overviewPanel.classList.toggle("hidden", view !== "overview");
   tracksPanel.classList.toggle("hidden", view !== "tracks");
+  activityPanel.classList.toggle("hidden", view !== "activity");
+  reasoningPanel.classList.toggle("hidden", view !== "reasoning");
   debugPanel.classList.toggle("hidden", view !== "debug");
+
+  if ((view === "activity" || view === "reasoning") && activeSessionId) {
+    const trackId = activityTrackId ?? "orchestrator";
+    void loadAgentActivity(trackId);
+    if (view === "activity") startActivityPolling(trackId);
+    else stopActivityPolling();
+  } else {
+    stopActivityPolling();
+  }
 }
 
 function renderSessionSummary(): void {
@@ -996,6 +1030,7 @@ backToSessionsBtn.addEventListener("click", async () => {
     clearInterval(pollInterval);
     pollInterval = null;
   }
+  stopActivityPolling();
   progressView.style.display = "none";
   activeSessionId = null;
   activeSessionStateDir = null;
@@ -1011,6 +1046,8 @@ void initSessionsView();
 
 overviewTab.addEventListener("click", () => setActiveView("overview"));
 tracksTab.addEventListener("click", () => setActiveView("tracks"));
+activityTab.addEventListener("click", () => setActiveView("activity"));
+reasoningTab.addEventListener("click", () => setActiveView("reasoning"));
 debugTab.addEventListener("click", () => setActiveView("debug"));
 
 // ── API key persistence ──────────────────────────────────────────────────────
@@ -1199,6 +1236,15 @@ async function selectTrack(state: TrackState): Promise<void> {
   progressLog.textContent = content ?? "(no progress yet)";
   progressLog.scrollTop = progressLog.scrollHeight;
 
+  // Sync activity/reasoning panel to the newly selected track
+  activityTrackId = state.trackId;
+  liveThinkingText.textContent = "";
+  liveThinking.classList.add("hidden");
+  if (activeView === "activity" || activeView === "reasoning") {
+    void loadAgentActivity(state.trackId);
+    if (activeView === "activity") startActivityPolling(state.trackId);
+  }
+
   const states = await api.getProgress(activeSessionId ?? undefined);
   renderTracks(states);
 }
@@ -1224,7 +1270,246 @@ permDeny.addEventListener("click", async () => {
   permissionOverlay.classList.add("hidden");
 });
 
-// Live streaming: append text chunks as they arrive from the agent
+// ── Activity + Reasoning ──────────────────────────────────────────────────────
+
+function stopActivityPolling(): void {
+  if (activityPollInterval) {
+    clearInterval(activityPollInterval);
+    activityPollInterval = null;
+  }
+}
+
+function startActivityPolling(trackId: string): void {
+  stopActivityPolling();
+  activityPollInterval = setInterval(() => {
+    void loadAgentActivity(trackId);
+  }, 2000);
+}
+
+async function loadAgentActivity(trackId: string): Promise<void> {
+  if (!activeSessionId) return;
+  activityTrackId = trackId;
+  const turns = await api.getAgentActivity(activeSessionId, trackId);
+  renderActivityPanel(trackId, turns);
+  renderReasoningPanel(trackId, turns);
+}
+
+function agentRole(trackId: string): string {
+  if (trackId === "orchestrator") return "orchestrator";
+  if (trackId === "reporter") return "reporter";
+  return "researcher";
+}
+
+function toolBadgeClass(toolName: string): string {
+  const n = toolName.toLowerCase();
+  if (n === "bash") return "bash";
+  if (n === "read" || n === "write" || n === "edit") return n;
+  if (n === "glob" || n === "grep") return n;
+  if (n === "webfetch" || n === "websearch") return n;
+  return "";
+}
+
+function summarizeToolInput(toolName: string, input: string): string {
+  try {
+    const parsed = JSON.parse(input) as Record<string, unknown>;
+    const n = toolName.toLowerCase();
+    if (n === "bash") return String(parsed["command"] ?? input).slice(0, 120);
+    if (n === "read") return String(parsed["file_path"] ?? parsed["path"] ?? input).slice(0, 120);
+    if (n === "write" || n === "edit") return String(parsed["file_path"] ?? parsed["path"] ?? input).slice(0, 120);
+    if (n === "webfetch" || n === "websearch") return String(parsed["url"] ?? parsed["query"] ?? input).slice(0, 120);
+    if (n === "glob") return String(parsed["pattern"] ?? input).slice(0, 120);
+    if (n === "grep") return String(parsed["pattern"] ?? input).slice(0, 120);
+    return input.slice(0, 120);
+  } catch {
+    return input.slice(0, 120);
+  }
+}
+
+function fmtMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function fmtNum(n: number): string {
+  return n.toLocaleString();
+}
+
+function renderActivityPanel(trackId: string, turns: AgentTurnInfo[]): void {
+  const role = agentRole(trackId);
+  activityAgentBadge.textContent = role;
+  activityAgentBadge.className = `agent-role-badge ${role}`;
+  activityAgentName.textContent = trackId;
+
+  const totalTools = turns.reduce((s, t) => s + t.toolCalls.length, 0);
+  const totalCostUsd = turns.reduce((s, t) => {
+    // rough estimate: $3/Mtok in, $15/Mtok out
+    return s + (t.inputTokens * 3 + t.outputTokens * 15) / 1_000_000;
+  }, 0);
+  activityStats.textContent = turns.length > 0
+    ? `${turns.length} turn${turns.length === 1 ? "" : "s"} · ${totalTools} tool calls · ~$${totalCostUsd.toFixed(3)}`
+    : "";
+
+  if (turns.length === 0) {
+    activityEmpty.style.display = "";
+    activityIterations.innerHTML = "";
+    return;
+  }
+  activityEmpty.style.display = "none";
+
+  // Group turns by iteration
+  const byIter = new Map<number, AgentTurnInfo[]>();
+  for (const t of turns) {
+    if (!byIter.has(t.iteration)) byIter.set(t.iteration, []);
+    byIter.get(t.iteration)!.push(t);
+  }
+
+  const scrollTop = activityIterations.scrollTop;
+  activityIterations.innerHTML = "";
+
+  for (const [iter, iterTurns] of [...byIter.entries()].sort(([a], [b]) => a - b)) {
+    const iterToolCount = iterTurns.reduce((s, t) => s + t.toolCalls.length, 0);
+    const iterIn = iterTurns.reduce((s, t) => s + t.inputTokens, 0);
+    const iterOut = iterTurns.reduce((s, t) => s + t.outputTokens, 0);
+
+    const iterEl = document.createElement("div");
+    iterEl.className = "activity-iteration";
+
+    const header = document.createElement("div");
+    header.className = "iteration-header";
+    header.innerHTML = `
+      <span class="iteration-chevron"></span>
+      <span class="iteration-label">Iteration ${iter}</span>
+      <span class="iteration-meta">${iterTurns.length} turn${iterTurns.length === 1 ? "" : "s"} · ${iterToolCount} tools · ${fmtNum(iterIn + iterOut)} tok</span>
+    `;
+
+    const body = document.createElement("div");
+    body.className = "iteration-body";
+
+    header.addEventListener("click", () => {
+      header.classList.toggle("collapsed");
+      body.classList.toggle("hidden");
+    });
+
+    for (const turn of iterTurns) {
+      const turnEl = document.createElement("div");
+      turnEl.className = "activity-turn";
+      turnEl.innerHTML = `<div class="turn-header">Turn ${turn.turnIndex} · ${fmtNum(turn.inputTokens)} in · ${fmtNum(turn.outputTokens)} out${turn.cacheReadTokens > 0 ? ` · ${fmtNum(turn.cacheReadTokens)} cache` : ""}</div>`;
+
+      for (const tc of turn.toolCalls) {
+        const summary = summarizeToolInput(tc.toolName, tc.toolInput);
+        const badgeClass = toolBadgeClass(tc.toolName);
+        const outcome = tc.outcome === "pending" ? "…" : tc.outcome === "ok" ? "✓" : "✗";
+        const outcomeClass = tc.outcome === "pending" ? "pending" : tc.outcome === "ok" ? "ok" : "error";
+
+        const row = document.createElement("div");
+        row.className = "tool-row";
+        row.innerHTML = `
+          <span class="tool-badge ${badgeClass}">${tc.toolName}</span>
+          <span class="tool-summary">${summary}</span>
+          <span class="tool-duration">${tc.elapsedMs > 0 ? fmtMs(tc.elapsedMs) : ""}</span>
+          <span class="tool-outcome ${outcomeClass}">${outcome}</span>
+        `;
+
+        const detail = document.createElement("div");
+        detail.className = "tool-detail";
+        detail.innerHTML = `
+          <div class="tool-detail-section">
+            <div class="tool-detail-label">Input</div>
+            <div class="tool-detail-code">${escHtml(tc.toolInput)}</div>
+          </div>
+          ${tc.toolOutput ? `<div class="tool-detail-section">
+            <div class="tool-detail-label">Output</div>
+            <div class="tool-detail-code">${escHtml(tc.toolOutput.slice(0, 4096))}</div>
+          </div>` : ""}
+        `;
+
+        row.addEventListener("click", () => {
+          row.classList.toggle("expanded");
+        });
+
+        turnEl.appendChild(row);
+        turnEl.appendChild(detail);
+      }
+
+      body.appendChild(turnEl);
+    }
+
+    iterEl.appendChild(header);
+    iterEl.appendChild(body);
+    activityIterations.appendChild(iterEl);
+  }
+
+  activityIterations.scrollTop = scrollTop;
+}
+
+function renderReasoningPanel(trackId: string, turns: AgentTurnInfo[]): void {
+  const role = agentRole(trackId);
+  reasoningAgentBadge.textContent = role;
+  reasoningAgentBadge.className = `agent-role-badge ${role}`;
+  reasoningAgentName.textContent = trackId;
+
+  const totalIn = turns.reduce((s, t) => s + t.inputTokens, 0);
+  const totalOut = turns.reduce((s, t) => s + t.outputTokens, 0);
+  const totalThinking = turns.reduce((s, t) => s + (t.thinkingText.length > 0 ? Math.round(t.thinkingText.length / 4) : 0), 0);
+  const totalCache = turns.reduce((s, t) => s + t.cacheReadTokens, 0);
+
+  tokenTotals.innerHTML = turns.length > 0 ? `
+    <span><strong>${fmtNum(totalIn)}</strong> in</span>
+    <span><strong>${fmtNum(totalOut)}</strong> out</span>
+    ${totalThinking > 0 ? `<span><strong>~${fmtNum(totalThinking)}</strong> thinking</span>` : ""}
+    ${totalCache > 0 ? `<span><strong>${fmtNum(totalCache)}</strong> cache hits</span>` : ""}
+  ` : "";
+
+  if (turns.length === 0) {
+    reasoningEmpty.style.display = "";
+    reasoningTurns.innerHTML = "";
+    return;
+  }
+  reasoningEmpty.style.display = "none";
+
+  const scrollTop = reasoningTurns.scrollTop;
+  reasoningTurns.innerHTML = "";
+
+  for (const turn of turns) {
+    if (!turn.thinkingText && !turn.textOutput) continue;
+
+    const turnEl = document.createElement("div");
+    turnEl.className = "reasoning-turn";
+
+    const thinkEst = turn.thinkingText.length > 0 ? Math.round(turn.thinkingText.length / 4) : 0;
+    turnEl.innerHTML = `
+      <div class="reasoning-turn-header">
+        <span class="reasoning-turn-label">Iter ${turn.iteration} · Turn ${turn.turnIndex}</span>
+        <div class="reasoning-turn-tokens">
+          <span class="tok-chip">${fmtNum(turn.inputTokens)} in</span>
+          <span class="tok-chip">${fmtNum(turn.outputTokens)} out</span>
+          ${thinkEst > 0 ? `<span class="tok-chip thinking">~${fmtNum(thinkEst)} thinking</span>` : ""}
+          ${turn.cacheReadTokens > 0 ? `<span class="tok-chip cache">${fmtNum(turn.cacheReadTokens)} cache</span>` : ""}
+        </div>
+      </div>
+      ${turn.thinkingText ? `
+        <div class="thinking-block">
+          <div class="block-label">Thinking</div>
+          <div class="block-text">${escHtml(turn.thinkingText)}</div>
+        </div>` : ""}
+      ${turn.textOutput ? `
+        <div class="output-block">
+          <div class="block-label">Output</div>
+          <div class="block-text">${escHtml(turn.textOutput)}</div>
+        </div>` : ""}
+    `;
+
+    reasoningTurns.appendChild(turnEl);
+  }
+
+  reasoningTurns.scrollTop = scrollTop;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ── Live streaming: append text chunks as they arrive from the agent ──────────
 api.onResearchLog((trackId: string, text: string) => {
   if (trackId === activeTrackId) {
     progressLog.textContent = (progressLog.textContent ?? "") + text;
@@ -1255,6 +1540,29 @@ api.onRuntimeEvent((event: RuntimeEvent) => {
   applyRuntimeEvent(testEvent);
   console.log("🧪 Test API limit event sent");
 };
+
+api.onAgentThinking((event: AgentThinkingEvent) => {
+  if (event.trackId !== activityTrackId) return;
+  if (activeView !== "reasoning") return;
+  liveThinking.classList.remove("hidden");
+  liveThinkingText.textContent = (liveThinkingText.textContent ?? "") + event.thinking;
+  liveThinkingText.scrollTop = liveThinkingText.scrollHeight;
+});
+
+api.onAgentTurn((event: AgentTurnEvent) => {
+  // Clear live thinking when a turn completes
+  if (event.trackId === activityTrackId) {
+    liveThinkingText.textContent = "";
+    liveThinking.classList.add("hidden");
+    if (activeView === "activity" || activeView === "reasoning") {
+      void loadAgentActivity(event.trackId);
+    }
+  }
+});
+
+api.onAgentToolProgress((_event: AgentToolProgressEvent) => {
+  // no-op for now — could show a live timer on the pending tool row
+});
 
 api.onResearchError((err: string) => {
   console.error("Research error:", err);

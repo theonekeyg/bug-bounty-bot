@@ -5,12 +5,33 @@
 
 import { EventEmitter } from "events";
 import type { RuntimeEvent, RuntimeEventInput } from "../types/runtime.js";
+import type { AgentTurnInfo } from "../types/activity.js";
 
 export type { RuntimeEventInput };
 
 export interface ResearchLogEvent {
   trackId: string;
   text: string;
+}
+
+export interface AgentThinkingEvent {
+  sessionId: string;
+  trackId: string;
+  thinking: string; // streaming delta chunk
+}
+
+export interface AgentTurnEvent {
+  sessionId: string;
+  trackId: string;
+  turn: AgentTurnInfo;
+}
+
+export interface AgentToolProgressEvent {
+  sessionId: string;
+  trackId: string;
+  toolUseId: string;
+  toolName: string;
+  elapsedSec: number;
 }
 
 export const ipcBus = new EventEmitter();

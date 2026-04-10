@@ -9,7 +9,13 @@ import { readFile, readdir, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { BoxerClient } from "../src/sandbox/boxer.ts";
 import { runOrchestrator } from "../src/orchestrator/agent.ts";
-import { ipcBus, type ResearchLogEvent } from "../src/ipc/bus.ts";
+import {
+  ipcBus,
+  type ResearchLogEvent,
+  type AgentThinkingEvent,
+  type AgentTurnEvent,
+  type AgentToolProgressEvent,
+} from "../src/ipc/bus.ts";
 import { readAllTrackStates, sessionPaths } from "../src/loop/state.ts";
 import type { PendingInstall } from "../src/types/state.ts";
 import { PendingInstallSchema } from "../src/types/state.ts";
@@ -21,6 +27,7 @@ import {
   listSessions,
   getSession,
   updateSessionStatus,
+  getAgentActivity,
 } from "../src/db/index.ts";
 
 export interface AppSettings {
@@ -81,6 +88,18 @@ ipcBus.on("research-log", (event: ResearchLogEvent) => {
 
 ipcBus.on("runtime-event", (event: RuntimeEvent) => {
   mainWindow?.webContents.send("runtime-event", event);
+});
+
+ipcBus.on("agent-thinking", (event: AgentThinkingEvent) => {
+  mainWindow?.webContents.send("agent-thinking", event);
+});
+
+ipcBus.on("agent-turn", (event: AgentTurnEvent) => {
+  mainWindow?.webContents.send("agent-turn", event);
+});
+
+ipcBus.on("agent-tool-progress", (event: AgentToolProgressEvent) => {
+  mainWindow?.webContents.send("agent-tool-progress", event);
 });
 
 app.whenReady().then(async () => {
@@ -245,6 +264,11 @@ ipcMain.handle("get-pending-installs", async (_event, sessionId?: string) => {
   }
 
   return pending;
+});
+
+/** Get full agent activity (turns + tool calls) for a track. */
+ipcMain.handle("get-agent-activity", async (_event, sessionId: string, trackId: string) => {
+  return getAgentActivity(sessionId, trackId);
 });
 
 /** Approve or reject a pending install. */

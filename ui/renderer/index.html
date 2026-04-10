@@ -421,6 +421,139 @@
       }
       .hidden { display: none !important; }
 
+      /* ── Activity + Reasoning panels ── */
+      .agent-panel-title { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+      .agent-role-badge {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+        padding: 3px 8px; border-radius: 999px; flex-shrink: 0;
+        background: rgba(124,58,237,0.15); color: var(--accent); border: 1px solid rgba(124,58,237,0.25);
+      }
+      .agent-role-badge.orchestrator { background: rgba(59,130,246,0.14); color: var(--blue); border-color: rgba(59,130,246,0.25); }
+      .agent-role-badge.researcher   { background: rgba(124,58,237,0.14); color: #a78bfa; border-color: rgba(124,58,237,0.25); }
+      .agent-role-badge.reporter     { background: rgba(34,197,94,0.14);  color: var(--green); border-color: rgba(34,197,94,0.25); }
+      .agent-panel-stats { font-size: 11px; color: var(--text-soft); white-space: nowrap; }
+      .agent-empty { padding: 32px; text-align: center; color: var(--muted); font-size: 13px; }
+      .activity-body  { overflow-y: auto; padding: 0 !important; }
+      .reasoning-body { overflow-y: auto; padding: 0 !important; display: flex; flex-direction: column; }
+
+      /* Iteration groups */
+      .activity-iteration { border-bottom: 1px solid var(--border); }
+      .iteration-header {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 16px; cursor: pointer;
+        font-size: 12px; font-weight: 600; color: var(--text-soft);
+        user-select: none;
+      }
+      .iteration-header:hover { background: rgba(255,255,255,0.02); }
+      .iteration-chevron {
+        width: 6px; height: 6px; border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
+        transition: transform 0.12s ease; flex-shrink: 0;
+      }
+      .iteration-header.collapsed .iteration-chevron { transform: rotate(-45deg); }
+      .iteration-label { font-weight: 700; color: var(--text); }
+      .iteration-meta { color: var(--muted); font-weight: 400; }
+      .iteration-body { padding: 0 0 8px; }
+      .iteration-body.hidden { display: none !important; }
+
+      /* Turn rows */
+      .activity-turn { padding: 6px 16px 6px 32px; }
+      .turn-header { font-size: 11px; color: var(--muted); margin-bottom: 4px; padding: 2px 0; }
+
+      /* Tool call rows */
+      .tool-row {
+        display: flex; align-items: flex-start; gap: 8px;
+        padding: 5px 8px; border-radius: 6px; margin-bottom: 2px;
+        cursor: pointer; transition: background 0.1s;
+      }
+      .tool-row:hover { background: rgba(255,255,255,0.04); }
+      .tool-badge {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+        padding: 2px 6px; border-radius: 4px; flex-shrink: 0; margin-top: 1px;
+        background: rgba(255,255,255,0.07); color: var(--text-soft);
+      }
+      .tool-badge.bash      { background: rgba(239,68,68,0.14);  color: #f87171; }
+      .tool-badge.read,
+      .tool-badge.write,
+      .tool-badge.edit      { background: rgba(59,130,246,0.14); color: #93c5fd; }
+      .tool-badge.glob,
+      .tool-badge.grep      { background: rgba(234,179,8,0.14);  color: #fde047; }
+      .tool-badge.webfetch,
+      .tool-badge.websearch { background: rgba(34,197,94,0.14);  color: #86efac; }
+      .tool-summary { flex: 1; font-size: 12px; color: var(--text); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+      .tool-duration { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+      .tool-outcome { font-size: 11px; flex-shrink: 0; }
+      .tool-outcome.ok    { color: var(--green); }
+      .tool-outcome.error { color: var(--red); }
+      .tool-outcome.pending { color: var(--muted); }
+
+      /* Tool detail expand */
+      .tool-detail { display: none; margin: 4px 0 6px 0; border-radius: 8px; overflow: hidden; }
+      .tool-row.expanded + .tool-detail { display: block; }
+      .tool-detail-section { padding: 8px 12px; }
+      .tool-detail-section + .tool-detail-section { border-top: 1px solid var(--border); }
+      .tool-detail-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
+      .tool-detail-code {
+        font-family: var(--font-mono); font-size: 11px; color: var(--text);
+        white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow-y: auto;
+        background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px 10px;
+      }
+
+      /* Reasoning turns */
+      .token-totals { font-size: 11px; color: var(--text-soft); display: flex; gap: 12px; flex-wrap: wrap; }
+      .token-totals span { white-space: nowrap; }
+      .token-totals strong { color: var(--text); }
+      .reasoning-turn { border-bottom: 1px solid var(--border); padding: 14px 16px; }
+      .reasoning-turn-header {
+        display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+        font-size: 11px; color: var(--muted);
+      }
+      .reasoning-turn-label { font-size: 12px; font-weight: 600; color: var(--text); }
+      .reasoning-turn-tokens { margin-left: auto; display: flex; gap: 8px; }
+      .tok-chip {
+        font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;
+        background: rgba(255,255,255,0.06); color: var(--text-soft);
+      }
+      .tok-chip.thinking { background: rgba(124,58,237,0.14); color: #c4b5fd; }
+      .tok-chip.cache    { background: rgba(234,179,8,0.10);  color: #fde047; }
+      .thinking-block, .output-block {
+        border-radius: 8px; overflow: hidden; margin-bottom: 8px;
+      }
+      .thinking-block { border: 1px solid rgba(124,58,237,0.2); }
+      .output-block   { border: 1px solid var(--border); }
+      .block-label {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+        padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);
+        color: var(--text-soft);
+      }
+      .thinking-block .block-label { background: rgba(124,58,237,0.1); color: #c4b5fd; }
+      .output-block   .block-label { background: rgba(255,255,255,0.03); }
+      .block-text {
+        font-size: 12px; line-height: 1.7; padding: 10px 12px;
+        white-space: pre-wrap; word-break: break-word; color: var(--text);
+        max-height: 260px; overflow-y: auto;
+      }
+      .thinking-block .block-text { color: #c4b5fd; font-style: italic; }
+
+      /* Live thinking */
+      .live-thinking {
+        margin: 12px 16px; padding: 12px; border-radius: 10px;
+        border: 1px solid rgba(124,58,237,0.3);
+        background: rgba(124,58,237,0.06);
+      }
+      .live-thinking-label {
+        font-size: 11px; font-weight: 600; color: #a78bfa; margin-bottom: 8px;
+        display: flex; align-items: center; gap: 6px;
+      }
+      .live-dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: #a78bfa; animation: pulse 1s infinite;
+      }
+      .live-thinking-text {
+        font-size: 12px; line-height: 1.7; color: #c4b5fd; font-style: italic;
+        white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow-y: auto;
+      }
+
       /* ── Permission prompt ── */
       #permission-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
       .permission-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 480px; width: 100%; }
@@ -1277,6 +1410,8 @@
           <div class="dashboard-tabs">
             <button class="view-tab active" id="overview-tab" type="button">Overview</button>
             <button class="view-tab" id="tracks-tab" type="button">Tracks</button>
+            <button class="view-tab" id="activity-tab" type="button">Activity</button>
+            <button class="view-tab" id="reasoning-tab" type="button">Reasoning</button>
             <button class="view-tab" id="debug-tab" type="button">Debug</button>
           </div>
           <div class="dashboard-panels">
@@ -1324,6 +1459,46 @@
                 </div>
               </section>
             </div>
+            <!-- Activity panel -->
+            <div class="dashboard-panel hidden" id="activity-panel">
+              <section class="dashboard-card" style="height:100%">
+                <div class="dashboard-card-header">
+                  <div class="agent-panel-title">
+                    <span class="agent-role-badge" id="activity-agent-badge">—</span>
+                    <h3 id="activity-agent-name">Select a track</h3>
+                  </div>
+                  <div class="agent-panel-stats" id="activity-stats"></div>
+                </div>
+                <div class="dashboard-card-body activity-body" id="activity-body">
+                  <div class="agent-empty" id="activity-empty">Select a track from the sidebar to view its activity.</div>
+                  <div class="activity-iterations" id="activity-iterations"></div>
+                </div>
+              </section>
+            </div>
+
+            <!-- Reasoning panel -->
+            <div class="dashboard-panel hidden" id="reasoning-panel">
+              <section class="dashboard-card" style="height:100%">
+                <div class="dashboard-card-header">
+                  <div class="agent-panel-title">
+                    <span class="agent-role-badge" id="reasoning-agent-badge">—</span>
+                    <h3 id="reasoning-agent-name">Select a track</h3>
+                  </div>
+                  <div class="token-totals" id="token-totals"></div>
+                </div>
+                <div class="dashboard-card-body reasoning-body" id="reasoning-body">
+                  <div class="agent-empty" id="reasoning-empty">Select a track from the sidebar to view reasoning traces.</div>
+                  <div class="reasoning-turns" id="reasoning-turns"></div>
+                  <div class="live-thinking hidden" id="live-thinking">
+                    <div class="live-thinking-label">
+                      <span class="live-dot"></span>Thinking…
+                    </div>
+                    <div class="live-thinking-text" id="live-thinking-text"></div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
             <div class="dashboard-panel hidden" id="debug-panel">
               <div id="progress-log"></div>
             </div>

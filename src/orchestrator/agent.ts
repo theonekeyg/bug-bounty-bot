@@ -107,6 +107,7 @@ export async function runOrchestrator(
   });
 
   let tracksCreated = false;
+  let currentIteration = 1;
 
   // If resuming and plan already exists, skip orchestration and go to research.
   const existingStates = await readAllTrackStates(sessionId);
@@ -191,6 +192,7 @@ export async function runOrchestrator(
         cwd: process.cwd(),
         sessionId,
         trackId: "orchestrator",
+        iteration: currentIteration,
         allowedTools: ["Write", "Read", "Edit", "Glob", "Grep"],
         persistHeartbeats: true,
       });
@@ -247,6 +249,7 @@ export async function runOrchestrator(
       maxIterations: 100,
       delayMs: 5000,
       scope: "session",
+      onIteration: (i) => { currentIteration = i; },
     },
   );
 }

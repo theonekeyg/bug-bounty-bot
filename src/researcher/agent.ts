@@ -111,6 +111,8 @@ export async function runResearcher(
     });
   }
 
+  let currentIteration = 1;
+
   await runRalphLoop(
     async (): Promise<LoopIteration> => {
       const state = await readTrackState(sessionId, trackId);
@@ -159,6 +161,7 @@ export async function runResearcher(
         cwd: process.cwd(),
         sessionId,
         trackId,
+        iteration: currentIteration,
         allowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"],
       });
 
@@ -228,7 +231,14 @@ export async function runResearcher(
       });
       return { done: false };
     },
-    { sessionId, trackId, label: `Researcher:${trackId}`, maxIterations: 50, delayMs: 2000 },
+    {
+      sessionId,
+      trackId,
+      label: `Researcher:${trackId}`,
+      maxIterations: 50,
+      delayMs: 2000,
+      onIteration: (i) => { currentIteration = i; },
+    },
   );
 
   if (workspaceId) {
