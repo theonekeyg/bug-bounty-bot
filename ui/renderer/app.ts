@@ -85,6 +85,7 @@ const runtimeModel = el("runtime-model");
 const runtimeBoxer = el("runtime-boxer");
 const runtimeHealthLabel = el("runtime-health-label");
 const stageRail = el("stage-rail");
+const backToSessionsBtn = el<HTMLButtonElement>("back-to-sessions");
 
 let activeSessionId: string | null = null;
 let activeSessionStateDir: string | null = null;
@@ -988,6 +989,22 @@ async function initSessionsView(): Promise<void> {
 newSessionBtn.addEventListener("click", () => {
   sessionsView.style.display = "none";
   welcome.style.display = "";
+});
+
+backToSessionsBtn.addEventListener("click", async () => {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  progressView.style.display = "none";
+  activeSessionId = null;
+  activeSessionStateDir = null;
+  activeTrackId = null;
+  resetRuntimeState();
+  runtimeSessionCard.classList.add("hidden");
+  setSessionConfigLocked(false);
+  startBtn.textContent = "Start Research";
+  await initSessionsView();
 });
 
 void initSessionsView();
