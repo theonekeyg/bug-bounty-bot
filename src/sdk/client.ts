@@ -135,12 +135,58 @@ function startHeartbeat(opts: AgentRunOptions): () => void {
   return () => clearInterval(timer);
 }
 
+let _openrouter: OpenAI | null = null;
+
+function getOpenRouter(): OpenAI {
+  if (!_openrouter) {
+    _openrouter = new OpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: process.env["OPENROUTER_API_KEY"] ?? "",
+      defaultHeaders: {
+        "HTTP-Referer": "https://github.com/bug-bounty-agent",
+        "X-Title": "Bug Bounty Agent",
+      },
+    });
+  }
+  return _openrouter;
+}
+
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const provider = getModelProvider(opts.modelConfig.model as SupportedModel);
   const stopHeartbeat = startHeartbeat(opts);
   let announcedOutput = false;
 
   try {
+    if (provider === "openrouter") {
+      emitRuntimeEvent({
+        scope: opts.trackId === "orchestrator" ? "session" : "track",
+        kind: "waiting",
+        severity: "info",
+        trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+        title: "Submitting request to OpenRouter",
+        detail: opts.modelConfig.model,
+        stage: "Waiting For Model",
+      });
+      if (!process.env["OPENROUTER_API_KEY"]) throw new Error("OPENROUTER_API_KEY environment variable is not set.");
+
+      try {
+        const response = await getOpenRouter().chat.completions.create({
+          model: opts.modelConfig.model,
+          messages: [
+            { role: "system", content: opts.systemPrompt },
+            { role: "user",   content: opts.prompt },
+          ],
+        });
+
+        const text = response.choices[0]?.message?.content?.trim() ?? "";
+        if (text) emitResearchLog(opts.trackId, text + "\n");
+        return { result: text, costUsd: 0, turns: 1 };
+      } catch (error) {
+        handleApiLimitError(error, opts, "OpenRouter");
+        throw error;
+      }
+    }
+
     if (provider === "openai") {
       emitRuntimeEvent({
         scope: opts.trackId === "orchestrator" ? "session" : "track",

@@ -6,6 +6,7 @@ export type { SessionInfo };
 
 export interface AppSettings {
   openaiKey: string;
+  openrouterKey: string;
 }
 
 export interface StoredEvent {

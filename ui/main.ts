@@ -25,6 +25,7 @@ import {
 
 export interface AppSettings {
   openaiKey: string;
+  openrouterKey: string;
 }
 
 const SETTINGS_FILE = () => join(app.getPath("userData"), "settings.json");
@@ -33,16 +34,16 @@ async function loadSettings(): Promise<AppSettings> {
   try {
     const raw = await readFile(SETTINGS_FILE(), "utf-8");
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    return { openaiKey: parsed.openaiKey ?? "" };
+    return { openaiKey: parsed.openaiKey ?? "", openrouterKey: parsed.openrouterKey ?? "" };
   } catch {
-    return { openaiKey: "" };
+    return { openaiKey: "", openrouterKey: "" };
   }
 }
 
 async function saveSettings(settings: AppSettings): Promise<void> {
   await writeFile(SETTINGS_FILE(), JSON.stringify(settings, null, 2), "utf-8");
-  // Immediately apply to env so running agents pick them up
   if (settings.openaiKey) process.env["OPENAI_API_KEY"] = settings.openaiKey;
+  if (settings.openrouterKey) process.env["OPENROUTER_API_KEY"] = settings.openrouterKey;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -93,6 +94,7 @@ app.whenReady().then(async () => {
   // Apply saved API keys to env before any agent runs
   const settings = await loadSettings();
   if (settings.openaiKey && !process.env["OPENAI_API_KEY"]) process.env["OPENAI_API_KEY"] = settings.openaiKey;
+  if (settings.openrouterKey && !process.env["OPENROUTER_API_KEY"]) process.env["OPENROUTER_API_KEY"] = settings.openrouterKey;
 
   createWindow();
 

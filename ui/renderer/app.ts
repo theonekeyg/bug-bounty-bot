@@ -77,6 +77,7 @@ const permApprove = el<HTMLButtonElement>("perm-approve");
 const permDeny = el<HTMLButtonElement>("perm-deny");
 const modelInput = el<HTMLInputElement>("model-name");
 const openaiKeyInput = el<HTMLInputElement>("openai-key");
+const openrouterKeyInput = el<HTMLInputElement>("openrouter-key");
 const runtimeSessionCard = el("runtime-session-card");
 const runtimeHealthDot = el("runtime-health-dot");
 const runtimeTarget = el("runtime-target");
@@ -669,6 +670,7 @@ document.addEventListener("keydown", (event) => {
 const PROVIDER_ICONS: Record<Provider, string> = {
   openai: "◎",
   anthropic: "✳",
+  openrouter: "⬡",
 };
 
 function createModelPicker(): void {
@@ -998,10 +1000,15 @@ debugTab.addEventListener("click", () => setActiveView("debug"));
 
 void api.getSettings().then((s) => {
   openaiKeyInput.value = s.openaiKey;
+  openrouterKeyInput.value = s.openrouterKey;
 });
 
 openaiKeyInput.addEventListener("blur", () => {
-  void api.saveSettings({ openaiKey: openaiKeyInput.value });
+  void api.saveSettings({ openaiKey: openaiKeyInput.value, openrouterKey: openrouterKeyInput.value });
+});
+
+openrouterKeyInput.addEventListener("blur", () => {
+  void api.saveSettings({ openaiKey: openaiKeyInput.value, openrouterKey: openrouterKeyInput.value });
 });
 
 // ── Form handlers ────────────────────────────────────────────────────────────
