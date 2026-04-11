@@ -10,7 +10,7 @@
  * This means a fresh agent context on each call is valid — state lives on disk, not in memory.
  */
 
-import { appendProgress } from "./state.js";
+import { appendProgress, checkStopSignal } from "./state.js";
 import { emitRuntimeEvent } from "../ipc/bus.js";
 
 export interface LoopIteration {
@@ -45,6 +45,23 @@ export async function runRalphLoop(
   await appendProgress(sessionId, trackId, `[loop] Starting "${label}" (maxIterations=${maxIterations})`);
 
   while (iteration < maxIterations) {
+    // Check for user-requested stop before each iteration
+    if (checkStopSignal(sessionId)) {
+      const msg = `[loop] "${label}" stopped by user request.`;
+      await appendProgress(sessionId, trackId, msg);
+      emitRuntimeEvent({
+        scope,
+        kind: "stage_changed",
+        severity: "warning",
+        trackId: scope === "track" ? trackId : undefined,
+        title: `${label} stopped`,
+        detail: "Stopped by user — can be resumed.",
+        stage: "Stopped",
+      });
+      console.log(msg);
+      return;
+    }
+
     iteration++;
     opts.onIteration?.(iteration);
 

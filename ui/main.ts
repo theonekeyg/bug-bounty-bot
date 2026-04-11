@@ -16,7 +16,7 @@ import {
   type AgentTurnEvent,
   type AgentToolProgressEvent,
 } from "../src/ipc/bus.ts";
-import { readAllTrackStates, sessionPaths } from "../src/loop/state.ts";
+import { readAllTrackStates, sessionPaths, writeStopSignal, clearStopSignal } from "../src/loop/state.ts";
 import type { PendingInstall } from "../src/types/state.ts";
 import { PendingInstallSchema } from "../src/types/state.ts";
 import { RunModelConfigSchema } from "../src/types/provider.ts";
@@ -176,10 +176,25 @@ ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: str
   return { started: true, sessionId: null };
 });
 
+/** Stop the active research session gracefully (can be resumed later). */
+ipcMain.handle("stop-research", async (_event, sessionId: string) => {
+  try {
+    await writeStopSignal(sessionId);
+    await updateSessionStatus(sessionId, "crashed");
+    activeSessionId = null;
+    return { stopped: true };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
 /** Resume a previously crashed or interrupted session. */
 ipcMain.handle("resume-research", async (_event, sessionId: string) => {
   const session = await getSession(sessionId);
   if (!session) return { error: "Session not found" };
+
+  // Clear any previous stop signal so the loop can run
+  await clearStopSignal(sessionId);
 
   activeBoxer = new BoxerClient(session.boxerUrl);
   activeSessionId = sessionId;

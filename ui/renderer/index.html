@@ -248,6 +248,9 @@
       .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
       .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 10px; }
       .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+      .btn-danger { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.35); border-radius: var(--radius); cursor: pointer; font-family: inherit; transition: background 0.1s; }
+      .btn-danger:hover { background: rgba(239,68,68,0.28); }
+      .btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
       .btn-sm { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 6px 10px; font-size: 12px; }
       .btn-sm:hover { border-color: var(--accent); }
 
@@ -1363,6 +1366,8 @@
               <div class="status-dot running" id="active-status-dot"></div>
               <h2 id="active-track-title">—</h2>
             </div>
+            <button class="btn-danger" id="stop-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Stop</button>
+            <button class="btn-primary" id="resume-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Resume</button>
           </div>
           <section class="runtime-hero">
             <div class="runtime-hero-top">

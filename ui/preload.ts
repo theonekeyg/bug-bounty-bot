@@ -31,6 +31,7 @@ export interface BugBountyAPI {
   getSessionEvents: (sessionId: string) => Promise<StoredEvent[]>;
   getSessionStateDir: (sessionId: string) => Promise<string>;
   setActiveSession: (sessionId: string) => Promise<{ ok: boolean }>;
+  stopResearch: (sessionId: string) => Promise<{ stopped: boolean } | { error: string }>;
   resumeResearch: (sessionId: string) => Promise<{ started: boolean; sessionId: string } | { error: string }>;
 
   // Research lifecycle
@@ -68,6 +69,7 @@ contextBridge.exposeInMainWorld("bugBounty", {
   getSessionEvents: (sessionId: string) => ipcRenderer.invoke("get-session-events", sessionId),
   getSessionStateDir: (sessionId: string) => ipcRenderer.invoke("get-session-state-dir", sessionId),
   setActiveSession: (sessionId: string) => ipcRenderer.invoke("set-active-session", sessionId),
+  stopResearch: (sessionId: string) => ipcRenderer.invoke("stop-research", sessionId),
   resumeResearch: (sessionId: string) => ipcRenderer.invoke("resume-research", sessionId),
 
   startResearch: (briefPath: string, boxerUrl: string, model: string, maxTracks: number) =>

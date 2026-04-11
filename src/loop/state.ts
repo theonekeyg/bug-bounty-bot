@@ -115,6 +115,27 @@ export function allTracksTerminal(states: TrackState[]): boolean {
   );
 }
 
+// ── Stop signal ───────────────────────────────────────────────────────────────
+
+function stopSignalPath(sessionId: string): string {
+  return join(SESSIONS_DIR, sessionId, "STOP");
+}
+
+export async function writeStopSignal(sessionId: string): Promise<void> {
+  const p = stopSignalPath(sessionId);
+  await mkdir(dirname(p), { recursive: true });
+  await writeFile(p, new Date().toISOString(), "utf-8");
+}
+
+export function checkStopSignal(sessionId: string): boolean {
+  return existsSync(stopSignalPath(sessionId));
+}
+
+export async function clearStopSignal(sessionId: string): Promise<void> {
+  const p = stopSignalPath(sessionId);
+  if (existsSync(p)) await rm(p, { force: true });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 export async function initStateDir(sessionId: string): Promise<void> {

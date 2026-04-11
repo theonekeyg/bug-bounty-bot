@@ -107,6 +107,8 @@ const runtimeBoxer = el("runtime-boxer");
 const runtimeHealthLabel = el("runtime-health-label");
 const stageRail = el("stage-rail");
 const backToSessionsBtn = el<HTMLButtonElement>("back-to-sessions");
+const stopSessionBtn = el<HTMLButtonElement>("stop-session-btn");
+const resumeSessionBtn = el<HTMLButtonElement>("resume-session-btn");
 
 let activeSessionId: string | null = null;
 let activeSessionStateDir: string | null = null;
@@ -984,6 +986,10 @@ async function openSession(s: SessionInfo): Promise<void> {
   runtimeBoxer.textContent = s.boxerUrl;
   runtimeSessionCard.classList.remove("hidden");
 
+  // Show stop button only for running sessions; resume for stopped/crashed
+  stopSessionBtn.style.display = s.status === "running" ? "" : "none";
+  resumeSessionBtn.style.display = (s.status === "crashed" || s.status === "failed") ? "" : "none";
+
   sessionsView.style.display = "none";
   welcome.style.display = "none";
   progressView.style.display = "flex";
@@ -1043,6 +1049,42 @@ backToSessionsBtn.addEventListener("click", async () => {
   setSessionConfigLocked(false);
   startBtn.textContent = "Start Research";
   await initSessionsView();
+});
+
+stopSessionBtn.addEventListener("click", async () => {
+  if (!activeSessionId) return;
+  stopSessionBtn.disabled = true;
+  stopSessionBtn.textContent = "Stopping…";
+  const result = await api.stopResearch(activeSessionId);
+  if ("error" in result) {
+    alert(`Stop failed: ${result.error}`);
+    stopSessionBtn.disabled = false;
+    stopSessionBtn.textContent = "Stop";
+    return;
+  }
+  stopSessionBtn.style.display = "none";
+  resumeSessionBtn.style.display = "";
+  activeStatusDot.className = "status-dot blocked";
+});
+
+resumeSessionBtn.addEventListener("click", async () => {
+  if (!activeSessionId) return;
+  const sid = activeSessionId;
+  resumeSessionBtn.disabled = true;
+  resumeSessionBtn.textContent = "Resuming…";
+  const result = await api.resumeResearch(sid);
+  if ("error" in result) {
+    alert(`Resume failed: ${result.error}`);
+    resumeSessionBtn.disabled = false;
+    resumeSessionBtn.textContent = "Resume";
+    return;
+  }
+  resumeSessionBtn.style.display = "none";
+  stopSessionBtn.disabled = false;
+  stopSessionBtn.textContent = "Stop";
+  stopSessionBtn.style.display = "";
+  activeStatusDot.className = "status-dot running";
+  startPolling();
 });
 
 void initSessionsView();
