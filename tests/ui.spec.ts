@@ -60,6 +60,11 @@ test.describe("Bug Bounty Agent UI", () => {
     await expect(page.locator("#track-list")).toBeVisible();
   });
 
+  test("resume controls use compact primary buttons", async () => {
+    await expect(page.locator("#new-session-btn")).toHaveClass(/btn-compact/);
+    await expect(page.locator("#resume-session-btn")).toHaveClass(/btn-compact/);
+  });
+
   test("provider cards surface every provider with explicit readiness", async () => {
     const statuses = await page.evaluate(() => window.bugBounty.getProviderStatuses());
     expect(statuses).toHaveLength(3);
