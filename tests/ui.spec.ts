@@ -50,6 +50,14 @@ test.describe("Bug Bounty Agent UI", () => {
     await expect(page.locator("#start-btn")).toBeDisabled();
     await expect(page.locator("#start-btn")).toHaveText("Set up Anthropic to continue");
     await expect(page.locator("#start-hint")).toContainText("Anthropic");
+    await expect(page.locator("#track-list")).toBeHidden();
+  });
+
+  test("session-live mode hides the sessions list and keeps the runtime view active", async () => {
+    await page.evaluate(() => document.body.classList.add("session-live"));
+    await expect(page.locator("#sessions-view")).toBeHidden();
+    await expect(page.locator("#runtime-session-card")).toBeVisible();
+    await expect(page.locator("#track-list")).toBeVisible();
   });
 
   test("provider cards surface every provider with explicit readiness", async () => {

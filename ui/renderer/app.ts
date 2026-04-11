@@ -1213,7 +1213,7 @@ function renderSessionList(sessions: SessionInfo[]): void {
 
     if (s.status === "crashed" || s.status === "running") {
       const resumeBtn = document.createElement("button");
-      resumeBtn.className = "btn-primary";
+      resumeBtn.className = "btn-primary btn-compact";
       resumeBtn.style.cssText = "padding:6px 12px; font-size:12px";
       resumeBtn.textContent = s.status === "crashed" ? "Resume" : "Attach";
       resumeBtn.addEventListener("click", async (e) => {
@@ -1517,6 +1517,7 @@ startBtn.addEventListener("click", async () => {
   startBtn.textContent = "Starting...";
   setSessionConfigLocked(true);
   resetRuntimeState();
+  sessionsView.style.display = "none";
   document.body.classList.add("session-live");
   activeTrackId = "orchestrator";
   activeTitle.textContent = "orchestrator";
