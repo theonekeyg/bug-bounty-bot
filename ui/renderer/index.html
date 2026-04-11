@@ -569,8 +569,206 @@
       .btn-deny { background: var(--red); color: white; }
       .btn-deny:hover { filter: brightness(1.1); }
 
-      /* ── API Keys collapsible ── */
-      .api-keys-section { margin-bottom: 12px; }
+      /* ── Provider access ── */
+      .provider-access-section {
+        margin: 12px 0 16px;
+        padding: 14px;
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 18px;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.014)),
+          rgba(16, 17, 22, 0.92);
+      }
+      .provider-access-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .provider-access-kicker {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #9ca3af;
+        margin-bottom: 6px;
+      }
+      .provider-access-copy {
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--text-soft);
+      }
+      .provider-access-summary {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8b93a6;
+        white-space: nowrap;
+      }
+      .provider-cards {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .provider-card {
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 16px;
+        padding: 12px;
+        background: rgba(8, 9, 12, 0.72);
+        transition: border-color 0.14s ease, transform 0.14s ease, background 0.14s ease;
+      }
+      .provider-card:hover {
+        border-color: rgba(124,58,237,0.26);
+        transform: translateY(-1px);
+      }
+      .provider-card.selected {
+        border-color: rgba(124,58,237,0.54);
+        box-shadow: 0 0 0 1px rgba(124,58,237,0.12);
+      }
+      .provider-card-top,
+      .provider-card-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .provider-card-title {
+        font-size: 13px;
+        font-weight: 650;
+        color: #f5f7fb;
+      }
+      .provider-card-copy,
+      .provider-card-source {
+        font-size: 11px;
+        color: var(--text-soft);
+        line-height: 1.45;
+      }
+      .provider-card-footer {
+        margin-top: 12px;
+      }
+      .provider-card-action,
+      .provider-source-chip,
+      .provider-panel-action {
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.03);
+        color: var(--text);
+      }
+      .provider-card-action {
+        padding: 7px 10px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .provider-card-action:hover,
+      .provider-panel-action:hover,
+      .provider-source-chip:hover {
+        border-color: rgba(124,58,237,0.36);
+        color: #fff;
+      }
+      .provider-status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border: 1px solid transparent;
+        white-space: nowrap;
+      }
+      .provider-status-badge.missing {
+        background: rgba(148, 163, 184, 0.08);
+        color: #cbd5e1;
+        border-color: rgba(148, 163, 184, 0.14);
+      }
+      .provider-status-badge.testing {
+        background: rgba(234, 179, 8, 0.12);
+        color: #fde68a;
+        border-color: rgba(234, 179, 8, 0.2);
+      }
+      .provider-status-badge.ready {
+        background: rgba(34, 197, 94, 0.12);
+        color: #86efac;
+        border-color: rgba(34, 197, 94, 0.22);
+      }
+      .provider-status-badge.invalid {
+        background: rgba(239, 68, 68, 0.12);
+        color: #fca5a5;
+        border-color: rgba(239, 68, 68, 0.22);
+      }
+      .provider-setup-card {
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.07);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.016)),
+          rgba(10, 11, 15, 0.9);
+      }
+      .provider-setup-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .provider-setup-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #f7f8fc;
+        margin-bottom: 4px;
+      }
+      .provider-setup-copy {
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--text-soft);
+      }
+      .provider-source-switch {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .provider-source-chip {
+        padding: 7px 10px;
+        font-size: 12px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .provider-source-chip.selected {
+        border-color: rgba(124,58,237,0.52);
+        background: rgba(124,58,237,0.14);
+        color: #ede9fe;
+      }
+      .provider-setup-note {
+        margin-top: 8px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--text-soft);
+      }
+      .provider-setup-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .provider-panel-action {
+        flex: 1;
+        padding: 9px 10px;
+        font-size: 12px;
+      }
+      .provider-secret-field.hidden {
+        display: none;
+      }
+      .start-hint {
+        margin-top: 8px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--text-soft);
+      }
+      .api-keys-section {
+        margin-bottom: 12px;
+      }
       .api-keys-toggle {
         display: flex;
         align-items: center;
@@ -1300,22 +1498,39 @@
               </div>
             </details>
 
-            <details class="api-keys-section">
-              <summary class="api-keys-toggle">API Keys</summary>
-              <div class="api-keys-body">
-                <div class="field">
-                  <label>OpenAI API Key</label>
-                  <input type="password" id="openai-key" placeholder="sk-..." autocomplete="off" />
+            <section class="provider-access-section" id="provider-access">
+              <div class="provider-access-head">
+                <div>
+                  <div class="provider-access-kicker">Provider Access</div>
+                  <div class="provider-access-copy">Every supported model stays visible, but locked providers stay explicit until credentials are ready.</div>
                 </div>
-                <div class="field">
-                  <label>OpenRouter API Key</label>
-                  <input type="password" id="openrouter-key" placeholder="sk-or-..." autocomplete="off" />
-                </div>
-                <p class="api-keys-note">Anthropic models use your Claude Code subscription (<code>claude auth login</code>).</p>
+                <div class="provider-access-summary" id="provider-access-summary">0/3 ready</div>
               </div>
-            </details>
+              <div class="provider-cards" id="provider-cards"></div>
+              <div class="provider-setup-card" id="provider-setup-card">
+                <div class="provider-setup-head">
+                  <div>
+                    <div class="provider-setup-title" id="provider-setup-provider">Select a provider</div>
+                    <div class="provider-setup-copy" id="provider-setup-copy">Choose a provider card or click a locked model to open setup here.</div>
+                  </div>
+                  <span class="provider-status-badge missing" id="provider-setup-state">Not set</span>
+                </div>
+                <div class="provider-source-switch" id="provider-source-switch"></div>
+                <div class="field provider-secret-field" id="provider-secret-field">
+                  <label id="provider-secret-label">API key</label>
+                  <input type="password" id="provider-secret" placeholder="Enter credential" autocomplete="off" />
+                </div>
+                <div class="provider-setup-actions">
+                  <button type="button" class="provider-panel-action" id="provider-test">Test</button>
+                  <button type="button" class="provider-panel-action" id="provider-delete">Delete</button>
+                  <button type="button" class="provider-panel-action btn-primary" id="provider-save">Save</button>
+                </div>
+                <div class="provider-setup-note" id="provider-setup-hint">Pick a provider to see its access state and available credential source.</div>
+              </div>
+            </section>
 
             <button class="btn-primary" id="start-btn">Start Research</button>
+            <div class="start-hint" id="start-hint">Provider access will determine whether research can start.</div>
           </div>
 
           <div class="runtime-session-card" id="runtime-session-card">

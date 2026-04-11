@@ -8,12 +8,17 @@ import type { TrackState, PendingInstall, RuntimeEvent } from "../../src/types/i
 import type { AgentThinkingEvent, AgentTurnEvent, AgentToolProgressEvent } from "../../src/ipc/bus.js";
 import {
   DEFAULT_MODEL,
+  PROVIDER_CAPABILITIES,
   PROVIDER_MODELS,
   PROVIDERS,
+  type CredentialSource,
   type Provider,
+  type ProviderStatus,
   type SupportedModel,
+  getCredentialSourceLabel,
   getModelProvider,
   getModelInfo,
+  getProviderLabel,
 } from "../../src/types/provider.js";
 
 declare const window: Window & { bugBounty: BugBountyAPI };
@@ -42,6 +47,21 @@ const contextInput = el<HTMLTextAreaElement>("context");
 const modelTrigger = el<HTMLButtonElement>("model-trigger");
 const boxerUrlInput = el<HTMLInputElement>("boxer-url");
 const tracksContainer = el("tracks-container");
+const providerAccessSummary = el("provider-access-summary");
+const providerCards = el("provider-cards");
+const providerSetupCard = el("provider-setup-card");
+const providerSetupProvider = el("provider-setup-provider");
+const providerSetupState = el("provider-setup-state");
+const providerSetupCopy = el("provider-setup-copy");
+const providerSetupHint = el("provider-setup-hint");
+const providerSourceSwitch = el("provider-source-switch");
+const providerSecretField = el("provider-secret-field");
+const providerSecretInput = el<HTMLInputElement>("provider-secret");
+const providerSecretLabel = el("provider-secret-label");
+const providerTestBtn = el<HTMLButtonElement>("provider-test");
+const providerSaveBtn = el<HTMLButtonElement>("provider-save");
+const providerDeleteBtn = el<HTMLButtonElement>("provider-delete");
+const startHint = el("start-hint");
 const welcome = el("welcome");
 const progressView = el("progress-view");
 const sessionStagePill = el("session-stage-pill");
@@ -97,8 +117,6 @@ const permDeny = el<HTMLButtonElement>("perm-deny");
 const modelInput = el<HTMLInputElement>("model-name");
 const maxTracksInput = el<HTMLInputElement>("max-tracks");
 const maxTracksLabel = el("max-tracks-label");
-const openaiKeyInput = el<HTMLInputElement>("openai-key");
-const openrouterKeyInput = el<HTMLInputElement>("openrouter-key");
 const runtimeSessionCard = el("runtime-session-card");
 const runtimeHealthDot = el("runtime-health-dot");
 const runtimeTarget = el("runtime-target");
@@ -129,6 +147,241 @@ const trackHeadlineById = new Map<string, string>();
 const trackStageById = new Map<string, string>();
 let milestoneEvents: RuntimeEvent[] = [];
 const milestoneSignatures: string[] = [];
+let providerStatuses: ProviderStatus[] = [];
+let providerSetupTarget: Provider | null = null;
+let providerSetupSourceByProvider = new Map<Provider, CredentialSource>();
+let refreshModelPickerUI: (() => void) | null = null;
+let refreshStartActionUI: (() => void) | null = null;
+
+function createDefaultProviderStatus(provider: Provider): ProviderStatus {
+  const supportedSources = PROVIDER_CAPABILITIES[provider].supportedSources;
+  const sources = Object.fromEntries(
+    supportedSources.map((source) => [
+      source,
+      {
+        source,
+        state: "missing",
+        lastValidatedAt: null,
+        errorMessage: null,
+      },
+    ]),
+  ) as ProviderStatus["sources"];
+
+  return {
+    provider,
+    state: "missing",
+    source: null,
+    activeSource: null,
+    lastValidatedAt: null,
+    errorMessage: null,
+    supportedSources,
+    sources,
+  };
+}
+
+function getProviderStatus(provider: Provider): ProviderStatus {
+  return providerStatuses.find((status) => status.provider === provider) ?? createDefaultProviderStatus(provider);
+}
+
+function getProviderStateLabel(state: ProviderStatus["state"]): string {
+  return {
+    missing: "Not set",
+    testing: "Testing",
+    ready: "Ready",
+    invalid: "Invalid",
+  }[state];
+}
+
+function getProviderSetupSource(provider: Provider): CredentialSource {
+  const status = getProviderStatus(provider);
+  if (providerSetupSourceByProvider.has(provider)) {
+    return providerSetupSourceByProvider.get(provider) ?? status.activeSource ?? PROVIDER_CAPABILITIES[provider].defaultSource;
+  }
+  return status.activeSource ?? PROVIDER_CAPABILITIES[provider].defaultSource;
+}
+
+function isProviderReady(provider: Provider): boolean {
+  return getProviderStatus(provider).state === "ready";
+}
+
+function getSelectedModel(): SupportedModel {
+  return (modelInput.value || DEFAULT_MODEL) as SupportedModel;
+}
+
+function getSelectedProvider(): Provider {
+  return getModelProvider(getSelectedModel());
+}
+
+function getProviderSetupInstructions(provider: Provider, source: CredentialSource): string {
+  if (provider === "anthropic" && source === "claude_auth") {
+    return "This uses your local Claude Code login. Save will mark the provider ready once the auth session is available.";
+  }
+  return "Enter the credential, test it, and save it to unlock this provider.";
+}
+
+function getProviderSourcePlaceholder(provider: Provider, source: CredentialSource): string {
+  if (provider === "openai") return "sk-...";
+  if (provider === "openrouter") return "sk-or-...";
+  if (source === "claude_auth") return "No API key needed";
+  return "sk-ant-...";
+}
+
+function openProviderSetup(provider: Provider, source?: CredentialSource): void {
+  providerSetupTarget = provider;
+  const nextSource = source ?? providerSetupSourceByProvider.get(provider) ?? getProviderSetupSource(provider);
+  providerSetupSourceByProvider.set(provider, nextSource);
+  renderProviderAccess();
+  providerSetupCard.scrollIntoView({ block: "nearest" });
+}
+
+function setStartActionState(disabled: boolean, label: string, detail: string): void {
+  startBtn.disabled = disabled;
+  startBtn.textContent = label;
+  startHint.textContent = detail;
+}
+
+function renderStartAction(): void {
+  const provider = getSelectedProvider();
+  const status = getProviderStatus(provider);
+  const providerLabel = getProviderLabel(provider);
+
+  if (!status.state || status.state !== "ready") {
+    setStartActionState(true, `Set up ${providerLabel} to continue`, `${providerLabel} is ${getProviderStateLabel(status.state).toLowerCase()}.`);
+    startHint.textContent = status.errorMessage ?? `Open Provider Access to unlock ${providerLabel} before starting research.`;
+    return;
+  }
+
+  setStartActionState(false, "Start Research", `${providerLabel} is ready. Fill in the brief and launch when you are ready.`);
+}
+
+function renderProviderSetup(): void {
+  const provider = providerSetupTarget ?? getSelectedProvider();
+  const status = getProviderStatus(provider);
+  const source = getProviderSetupSource(provider);
+  const sourceLabel = getCredentialSourceLabel(source);
+  const providerLabel = getProviderLabel(provider);
+  const activeStatus = status.sources[source];
+  const panelState = activeStatus?.state ?? status.state;
+
+  providerSetupCard.dataset.provider = provider;
+  providerSetupProvider.textContent = providerLabel;
+  providerSetupState.textContent = getProviderStateLabel(panelState);
+  providerSetupState.className = `provider-status-badge ${panelState}`;
+  providerSetupCopy.textContent = getProviderSetupInstructions(provider, source);
+
+  providerSourceSwitch.innerHTML = "";
+  for (const candidate of status.supportedSources) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `provider-source-chip ${candidate === source ? "selected" : ""}`;
+    button.textContent = getCredentialSourceLabel(candidate);
+    button.addEventListener("click", () => {
+      const candidateStatus = status.sources[candidate];
+      if (candidateStatus?.state === "ready" && candidate !== status.activeSource) {
+        providerSetupSourceByProvider.set(provider, candidate);
+        void api.setProviderActiveSource(provider, candidate).then(() => refreshProviderStatuses());
+        return;
+      }
+      providerSetupSourceByProvider.set(provider, candidate);
+      renderProviderAccess();
+    });
+    providerSourceSwitch.appendChild(button);
+  }
+
+  providerSecretLabel.textContent = sourceLabel;
+  if (source === "claude_auth") {
+    providerSecretInput.value = "";
+  }
+  providerSecretInput.placeholder = getProviderSourcePlaceholder(provider, source);
+  providerSecretField.classList.toggle("hidden", source === "claude_auth");
+
+  providerSetupHint.textContent =
+    status.state === "ready"
+      ? `Active source: ${sourceLabel}. Last validated ${status.lastValidatedAt ? formatRelativeTime(status.lastValidatedAt) : "just now"}.`
+      : activeStatus?.errorMessage ?? (source === "claude_auth"
+          ? "No Claude auth session is saved yet."
+          : `No ${sourceLabel} is saved yet.`);
+
+  providerTestBtn.textContent = source === "claude_auth" ? "Test auth" : "Test";
+  providerSaveBtn.textContent = source === "claude_auth" ? `Save ${sourceLabel}` : "Save";
+  providerDeleteBtn.textContent = source === "claude_auth" ? "Clear auth" : "Delete";
+  providerDeleteBtn.disabled = activeStatus?.state === "missing";
+  providerSaveBtn.disabled = false;
+  providerTestBtn.disabled = false;
+
+  providerSetupCard.classList.toggle("is-target", providerSetupTarget === provider);
+  providerSetupCard.classList.toggle("is-empty", providerSetupTarget === null);
+}
+
+async function refreshProviderStatuses(): Promise<void> {
+  providerStatuses = await api.getProviderStatuses();
+
+  if (!providerSetupTarget) {
+    providerSetupTarget = getSelectedProvider();
+  }
+
+  if (providerSetupTarget && !providerSetupSourceByProvider.has(providerSetupTarget)) {
+    providerSetupSourceByProvider.set(providerSetupTarget, getProviderSetupSource(providerSetupTarget));
+  }
+
+  renderProviderAccess();
+  refreshModelPickerUI?.();
+  refreshStartActionUI?.();
+}
+
+function renderProviderAccess(): void {
+  const readyCount = providerStatuses.filter((status) => status.state === "ready").length;
+  providerAccessSummary.textContent = `${readyCount}/${PROVIDERS.length} ready`;
+  providerCards.innerHTML = "";
+
+  for (const provider of PROVIDERS.map((entry) => entry.value)) {
+    const status = getProviderStatus(provider);
+    const card = document.createElement("article");
+    card.className = `provider-card ${providerSetupTarget === provider ? "selected" : ""}`;
+    card.dataset.provider = provider;
+
+    const statusLabel = getProviderStateLabel(status.state);
+    const activeSource = status.activeSource ?? status.source ?? PROVIDER_CAPABILITIES[provider].defaultSource;
+    const activeSourceLabel = getCredentialSourceLabel(activeSource);
+    const sourceSummary =
+      provider === "anthropic"
+        ? `Active source: ${activeSourceLabel}`
+        : `Source: ${activeSourceLabel}`;
+    const detail =
+      status.state === "ready"
+        ? `${sourceSummary} · validated ${status.lastValidatedAt ? formatRelativeTime(status.lastValidatedAt) : "just now"}`
+        : status.errorMessage ?? sourceSummary;
+
+    card.innerHTML = `
+      <div class="provider-card-top">
+        <div>
+          <div class="provider-card-title">${getProviderLabel(provider)}</div>
+          <div class="provider-card-copy">${detail}</div>
+        </div>
+        <span class="provider-status-badge ${status.state}">${statusLabel}</span>
+      </div>
+      <div class="provider-card-footer">
+        <div class="provider-card-source">${sourceSummary}</div>
+        <button type="button" class="provider-card-action">${status.state === "ready" ? "Manage" : `Set up ${getProviderLabel(provider)} to continue`}</button>
+      </div>
+    `;
+
+    card.querySelector<HTMLButtonElement>(".provider-card-action")?.addEventListener("click", () => {
+      openProviderSetup(provider, activeSource);
+    });
+
+    card.addEventListener("click", (event) => {
+      if (event.target instanceof HTMLButtonElement) return;
+      openProviderSetup(provider, activeSource);
+    });
+
+    providerCards.appendChild(card);
+  }
+
+  if (providerSetupTarget) {
+    renderProviderSetup();
+  }
+}
 
 function setSessionConfigLocked(locked: boolean): void {
   targetInput.disabled = locked;
@@ -746,14 +999,24 @@ function createModelPicker(): void {
     const model = (modelInput.value || DEFAULT_MODEL) as SupportedModel;
     const info = getModelInfo(model);
     const provider = getModelProvider(model);
+    const status = getProviderStatus(provider);
     valueLabel.textContent = info.label;
-    metaLabel.textContent = `${PROVIDERS.find((p) => p.value === provider)?.label ?? ""} · ${info.description}`;
+    metaLabel.textContent = `${PROVIDERS.find((p) => p.value === provider)?.label ?? ""} · ${info.description} · ${getProviderStateLabel(status.state)}`;
   };
 
   const selectModel = (value: string): void => {
     modelInput.value = value;
     updateTrigger();
+    refreshStartActionUI?.();
+    const provider = getModelProvider(value as SupportedModel);
+    if (getProviderStatus(provider).state !== "ready") {
+      openProviderSetup(provider);
+      renderMenu();
+      refreshStartActionUI?.();
+      return;
+    }
     close();
+    refreshStartActionUI?.();
   };
 
   const renderMenu = (): void => {
@@ -765,6 +1028,7 @@ function createModelPicker(): void {
         btn.type = "button";
         btn.className = "dropdown-option";
         const currentProvider = getModelProvider((modelInput.value || DEFAULT_MODEL) as SupportedModel);
+        const status = getProviderStatus(p.value);
         if (currentProvider === p.value) btn.classList.add("selected");
 
         const icon = document.createElement("span");
@@ -777,6 +1041,13 @@ function createModelPicker(): void {
         label.className = "dropdown-option-label";
         label.textContent = p.label;
         main.appendChild(label);
+
+        const description = document.createElement("span");
+        description.className = "dropdown-option-description";
+        description.textContent = `${getProviderStateLabel(status.state)} · ${
+          status.state === "ready" ? `Active ${getCredentialSourceLabel(status.activeSource ?? status.source ?? PROVIDER_CAPABILITIES[p.value].defaultSource)}` : "Open setup to continue"
+        }`;
+        main.appendChild(description);
 
         const chevron = document.createElement("span");
         chevron.className = "dropdown-option-chevron-right";
@@ -818,6 +1089,8 @@ function createModelPicker(): void {
         btn.type = "button";
         btn.className = "dropdown-option";
         if (model.value === modelInput.value) btn.classList.add("selected");
+        const providerStatus = getProviderStatus(browsingProvider);
+        const modelProviderReady = providerStatus.state === "ready";
 
         const main = document.createElement("span");
         main.className = "dropdown-option-main";
@@ -826,14 +1099,18 @@ function createModelPicker(): void {
         labelEl.textContent = model.label;
         const descEl = document.createElement("span");
         descEl.className = "dropdown-option-description";
-        descEl.textContent = model.description;
+        descEl.textContent = modelProviderReady ? model.description : `${model.description} · ${getProviderStateLabel(providerStatus.state)}`;
         main.append(labelEl, descEl);
 
         const check = document.createElement("span");
         check.className = "dropdown-option-check";
         check.setAttribute("aria-hidden", "true");
 
-        btn.append(main, check);
+        const badge = document.createElement("span");
+        badge.className = `provider-status-badge ${providerStatus.state}`;
+        badge.textContent = modelProviderReady ? "Ready" : getProviderStateLabel(providerStatus.state);
+
+        btn.append(main, badge, check);
         btn.addEventListener("click", (e) => { e.stopPropagation(); selectModel(model.value); });
         menu.appendChild(btn);
       }
@@ -858,11 +1135,15 @@ function createModelPicker(): void {
   // The runtime default lives in TypeScript; do not trust static HTML defaults.
   modelInput.value = DEFAULT_MODEL;
   updateTrigger();
+  refreshModelPickerUI = updateTrigger;
 }
 
 createModelPicker();
 setActiveView("overview");
 resetRuntimeState();
+renderProviderAccess();
+renderStartAction();
+void refreshProviderStatuses();
 
 // ── Session list ──────────────────────────────────────────────────────────────
 
@@ -1095,19 +1376,86 @@ activityTab.addEventListener("click", () => setActiveView("activity"));
 reasoningTab.addEventListener("click", () => setActiveView("reasoning"));
 debugTab.addEventListener("click", () => setActiveView("debug"));
 
-// ── API key persistence ──────────────────────────────────────────────────────
+// ── Provider access persistence ─────────────────────────────────────────────
 
-void api.getSettings().then((s) => {
-  openaiKeyInput.value = s.openaiKey;
-  openrouterKeyInput.value = s.openrouterKey;
+refreshStartActionUI = renderStartAction;
+providerSetupTarget = getSelectedProvider();
+
+async function saveSelectedProviderCredential(): Promise<void> {
+  const provider = providerSetupTarget ?? getSelectedProvider();
+  const source = getProviderSetupSource(provider);
+  const secret = source === "claude_auth" ? null : providerSecretInput.value.trim();
+
+  providerSaveBtn.disabled = true;
+  providerSaveBtn.textContent = "Saving…";
+  providerSetupHint.textContent = "Validating and saving credential…";
+
+  try {
+    await api.saveProviderCredential(provider, source, secret);
+    if (source !== "claude_auth") {
+      providerSecretInput.value = "";
+    }
+    await refreshProviderStatuses();
+  } catch (error) {
+    providerSetupHint.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    providerSaveBtn.disabled = false;
+    providerSaveBtn.textContent = source === "claude_auth" ? `Save ${getCredentialSourceLabel(source)}` : "Save";
+  }
+}
+
+async function testSelectedProviderCredential(): Promise<void> {
+  const provider = providerSetupTarget ?? getSelectedProvider();
+  const source = getProviderSetupSource(provider);
+  const secret = source === "claude_auth" ? null : providerSecretInput.value.trim();
+
+  providerTestBtn.disabled = true;
+  providerTestBtn.textContent = "Testing…";
+  providerSetupHint.textContent = "Testing credential…";
+
+  try {
+    const result = await api.testProviderCredential(provider, source, secret);
+    providerSetupHint.textContent = result.ok
+      ? `${getProviderLabel(provider)} ${getCredentialSourceLabel(source)} looks valid.`
+      : result.errorMessage ?? "Validation failed.";
+  } catch (error) {
+    providerSetupHint.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    providerTestBtn.disabled = false;
+    providerTestBtn.textContent = source === "claude_auth" ? "Test auth" : "Test";
+  }
+}
+
+async function deleteSelectedProviderCredential(): Promise<void> {
+  const provider = providerSetupTarget ?? getSelectedProvider();
+  const source = getProviderSetupSource(provider);
+
+  providerDeleteBtn.disabled = true;
+  providerDeleteBtn.textContent = "Deleting…";
+  providerSetupHint.textContent = "Removing credential…";
+
+  try {
+    await api.deleteProviderCredential(provider, source);
+    providerSecretInput.value = "";
+    await refreshProviderStatuses();
+  } catch (error) {
+    providerSetupHint.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    providerDeleteBtn.disabled = false;
+    providerDeleteBtn.textContent = source === "claude_auth" ? "Clear auth" : "Delete";
+  }
+}
+
+providerTestBtn.addEventListener("click", () => {
+  void testSelectedProviderCredential();
 });
 
-openaiKeyInput.addEventListener("blur", () => {
-  void api.saveSettings({ openaiKey: openaiKeyInput.value, openrouterKey: openrouterKeyInput.value });
+providerSaveBtn.addEventListener("click", () => {
+  void saveSelectedProviderCredential();
 });
 
-openrouterKeyInput.addEventListener("blur", () => {
-  void api.saveSettings({ openaiKey: openaiKeyInput.value, openrouterKey: openrouterKeyInput.value });
+providerDeleteBtn.addEventListener("click", () => {
+  void deleteSelectedProviderCredential();
 });
 
 // ── Form handlers ────────────────────────────────────────────────────────────

@@ -3,13 +3,9 @@ import type { TrackState, PendingInstall, RuntimeEvent } from "../src/types/inde
 import type { SessionInfo } from "../src/db/sessions.js";
 import type { AgentTurnInfo } from "../src/types/activity.js";
 import type { AgentThinkingEvent, AgentTurnEvent, AgentToolProgressEvent } from "../src/ipc/bus.js";
+import type { CredentialSource, Provider, ProviderStatus } from "../src/types/provider.js";
 
 export type { SessionInfo, AgentTurnInfo };
-
-export interface AppSettings {
-  openaiKey: string;
-  openrouterKey: string;
-}
 
 export interface StoredEvent {
   id: string;
@@ -49,6 +45,26 @@ export interface BugBountyAPI {
 
   // Activity
   getAgentActivity: (sessionId: string, trackId: string) => Promise<AgentTurnInfo[]>;
+  getProviderStatuses: () => Promise<ProviderStatus[]>;
+  getProviderStatus: (provider: Provider) => Promise<ProviderStatus>;
+  testProviderCredential: (
+    provider: Provider,
+    source: CredentialSource,
+    secret: string | null,
+  ) => Promise<{ ok: boolean; errorMessage?: string }>;
+  saveProviderCredential: (
+    provider: Provider,
+    source: CredentialSource,
+    secret: string | null,
+  ) => Promise<ProviderStatus>;
+  deleteProviderCredential: (
+    provider: Provider,
+    source: CredentialSource,
+  ) => Promise<ProviderStatus>;
+  setProviderActiveSource: (
+    provider: Provider,
+    source: CredentialSource,
+  ) => Promise<ProviderStatus>;
 
   // Event streams
   onResearchError: (cb: (err: string) => void) => void;
@@ -58,9 +74,6 @@ export interface BugBountyAPI {
   onAgentTurn: (cb: (event: AgentTurnEvent) => void) => void;
   onAgentToolProgress: (cb: (event: AgentToolProgressEvent) => void) => void;
 
-  // Settings
-  getSettings: () => Promise<AppSettings>;
-  saveSettings: (settings: AppSettings) => Promise<void>;
 }
 
 contextBridge.exposeInMainWorld("bugBounty", {
@@ -90,6 +103,16 @@ contextBridge.exposeInMainWorld("bugBounty", {
 
   getAgentActivity: (sessionId: string, trackId: string) =>
     ipcRenderer.invoke("get-agent-activity", sessionId, trackId),
+  getProviderStatuses: () => ipcRenderer.invoke("get-provider-statuses"),
+  getProviderStatus: (provider: Provider) => ipcRenderer.invoke("get-provider-status", provider),
+  testProviderCredential: (provider: Provider, source: CredentialSource, secret: string | null) =>
+    ipcRenderer.invoke("test-provider-credential", provider, source, secret),
+  saveProviderCredential: (provider: Provider, source: CredentialSource, secret: string | null) =>
+    ipcRenderer.invoke("save-provider-credential", provider, source, secret),
+  deleteProviderCredential: (provider: Provider, source: CredentialSource) =>
+    ipcRenderer.invoke("delete-provider-credential", provider, source),
+  setProviderActiveSource: (provider: Provider, source: CredentialSource) =>
+    ipcRenderer.invoke("set-provider-active-source", provider, source),
 
   onResearchError: (cb: (err: string) => void) =>
     ipcRenderer.on("research-error", (_event, err: string) => cb(err)),
@@ -111,6 +134,4 @@ contextBridge.exposeInMainWorld("bugBounty", {
   onAgentToolProgress: (cb: (event: AgentToolProgressEvent) => void) =>
     ipcRenderer.on("agent-tool-progress", (_event, event: AgentToolProgressEvent) => cb(event)),
 
-  getSettings: () => ipcRenderer.invoke("get-settings"),
-  saveSettings: (settings: AppSettings) => ipcRenderer.invoke("save-settings", settings),
 } satisfies BugBountyAPI);

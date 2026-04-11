@@ -3,12 +3,19 @@
  * Manages the app window and IPC bridge to the agent backend.
  */
 
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, safeStorage } from "electron";
 import { join } from "path";
 import { readFile, readdir, writeFile, mkdir } from "fs/promises";
-import { existsSync } from "fs";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { createDecipheriv, createCipheriv, randomBytes } from "crypto";
+import OpenAI from "openai";
+import { Anthropic } from "@anthropic-ai/sdk";
 import { BoxerClient } from "../src/sandbox/boxer.ts";
 import { runOrchestrator } from "../src/orchestrator/agent.ts";
+import { ProviderCredentialStore, type CredentialValidationResult } from "../src/credentials/store.ts";
+import { setCredentialResolver } from "../src/credentials/runtime.ts";
 import {
   ipcBus,
   type ResearchLogEvent,
@@ -19,7 +26,11 @@ import {
 import { readAllTrackStates, sessionPaths, writeStopSignal, clearStopSignal } from "../src/loop/state.ts";
 import type { PendingInstall } from "../src/types/state.ts";
 import { PendingInstallSchema } from "../src/types/state.ts";
-import { RunModelConfigSchema } from "../src/types/provider.ts";
+import {
+  type CredentialSource,
+  type Provider,
+  RunModelConfigSchema,
+} from "../src/types/provider.ts";
 import type { RuntimeEvent } from "../src/types/runtime.ts";
 import {
   initDb,
@@ -30,27 +41,169 @@ import {
   getAgentActivity,
 } from "../src/db/index.ts";
 
-export interface AppSettings {
-  openaiKey: string;
-  openrouterKey: string;
+const execFileAsync = promisify(execFile);
+
+const USER_DATA_DIR = () => app.getPath("userData");
+const PROVIDER_METADATA_FILE = () => join(USER_DATA_DIR(), "provider-credentials.json");
+const PROVIDER_SECRET_FILE = () => join(USER_DATA_DIR(), "provider-secrets.enc");
+const LOCAL_SECRET_KEY_FILE = () => join(USER_DATA_DIR(), "provider-secret.key");
+
+let credentialStore: ProviderCredentialStore | null = null;
+
+function ensureCredentialStore(): ProviderCredentialStore {
+  if (!credentialStore) {
+    throw new Error("Credential store not initialised");
+  }
+  return credentialStore;
 }
 
-const SETTINGS_FILE = () => join(app.getPath("userData"), "settings.json");
+function buildCredentialCodec() {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return buildFallbackCodec();
+  }
 
-async function loadSettings(): Promise<AppSettings> {
+  return {
+    isAvailable: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (value: string) => safeStorage.encryptString(value).toString("base64"),
+    decrypt: (value: string) => safeStorage.decryptString(Buffer.from(value, "base64")),
+  };
+}
+
+function buildFallbackCodec() {
+  const key = loadOrCreateFallbackKey();
+
+  return {
+    isAvailable: () => true,
+    encrypt: (value: string) => {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv("aes-256-gcm", key, iv);
+      const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+      const authTag = cipher.getAuthTag();
+      return JSON.stringify({
+        iv: iv.toString("base64"),
+        authTag: authTag.toString("base64"),
+        ciphertext: encrypted.toString("base64"),
+      });
+    },
+    decrypt: (value: string) => {
+      const payload = JSON.parse(value) as { iv: string; authTag: string; ciphertext: string };
+      const decipher = createDecipheriv(
+        "aes-256-gcm",
+        key,
+        Buffer.from(payload.iv, "base64"),
+      );
+      decipher.setAuthTag(Buffer.from(payload.authTag, "base64"));
+      const decrypted = Buffer.concat([
+        decipher.update(Buffer.from(payload.ciphertext, "base64")),
+        decipher.final(),
+      ]);
+      return decrypted.toString("utf8");
+    },
+  };
+}
+
+function loadOrCreateFallbackKey(): Buffer {
+  const keyPath = LOCAL_SECRET_KEY_FILE();
+  if (existsSync(keyPath)) {
+    return Buffer.from(readFileSync(keyPath, "utf-8"), "base64");
+  }
+
+  const key = randomBytes(32);
+  mkdirSync(join(USER_DATA_DIR()), { recursive: true });
+  writeFileSync(keyPath, key.toString("base64"), { mode: 0o600 });
+  return key;
+}
+
+async function validateOpenAIKey(secret: string): Promise<CredentialValidationResult> {
+  if (process.env["ELECTRON_IS_TEST"] === "1") {
+    return secret.trim().length > 0 ? { ok: true } : { ok: false, errorMessage: "OpenAI key is required." };
+  }
   try {
-    const raw = await readFile(SETTINGS_FILE(), "utf-8");
-    const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    return { openaiKey: parsed.openaiKey ?? "", openrouterKey: parsed.openrouterKey ?? "" };
-  } catch {
-    return { openaiKey: "", openrouterKey: "" };
+    const client = new OpenAI({ apiKey: secret });
+    await client.models.list();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, errorMessage: humanizeCredentialError("OpenAI", error) };
   }
 }
 
-async function saveSettings(settings: AppSettings): Promise<void> {
-  await writeFile(SETTINGS_FILE(), JSON.stringify(settings, null, 2), "utf-8");
-  if (settings.openaiKey) process.env["OPENAI_API_KEY"] = settings.openaiKey;
-  if (settings.openrouterKey) process.env["OPENROUTER_API_KEY"] = settings.openrouterKey;
+async function validateOpenRouterKey(secret: string): Promise<CredentialValidationResult> {
+  if (process.env["ELECTRON_IS_TEST"] === "1") {
+    return secret.trim().length > 0 ? { ok: true } : { ok: false, errorMessage: "OpenRouter key is required." };
+  }
+  try {
+    const client = new OpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: secret,
+      defaultHeaders: {
+        "HTTP-Referer": "https://github.com/bug-bounty-agent",
+        "X-Title": "Bug Bounty Agent",
+      },
+    });
+    await client.models.list();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, errorMessage: humanizeCredentialError("OpenRouter", error) };
+  }
+}
+
+async function validateAnthropicApiKey(secret: string): Promise<CredentialValidationResult> {
+  if (process.env["ELECTRON_IS_TEST"] === "1") {
+    return secret.trim().length > 0 ? { ok: true } : { ok: false, errorMessage: "Anthropic key is required." };
+  }
+  try {
+    const client = new Anthropic({ apiKey: secret });
+    await client.models.list();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, errorMessage: humanizeCredentialError("Anthropic", error) };
+  }
+}
+
+async function validateClaudeAuth(): Promise<CredentialValidationResult> {
+  if (process.env["ELECTRON_IS_TEST"] === "1") {
+    return { ok: true };
+  }
+  try {
+    await execFileAsync("claude", ["auth", "status", "--json"], {
+      env: process.env,
+      maxBuffer: 1024 * 1024,
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, errorMessage: humanizeCredentialError("Claude auth", error) };
+  }
+}
+
+function humanizeCredentialError(provider: string, error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (/not found/i.test(raw) || /enoent/i.test(raw)) {
+    return `${provider} is unavailable on this machine.`;
+  }
+  if (/unauthorized|authentication|api key|403|401/i.test(raw)) {
+    return `${provider} credentials were rejected. Check the key or auth session.`;
+  }
+  if (/rate limit|quota|billing|payment/i.test(raw)) {
+    return `${provider} access looks valid, but the account is rate-limited or out of quota.`;
+  }
+  return raw;
+}
+
+async function validateProviderCredential(input: {
+  provider: Provider;
+  source: CredentialSource;
+  secret: string | null;
+}): Promise<CredentialValidationResult> {
+  switch (input.provider) {
+    case "openai":
+      return validateOpenAIKey(input.secret ?? "");
+    case "openrouter":
+      return validateOpenRouterKey(input.secret ?? "");
+    case "anthropic":
+      return input.source === "api_key" ? validateAnthropicApiKey(input.secret ?? "") : validateClaudeAuth();
+  }
+
+  throw new Error(`Unsupported provider: ${input.provider}`);
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -110,10 +263,14 @@ app.whenReady().then(async () => {
   // Any session that was "running" when the process died is now "crashed"
   await markCrashedSessions();
 
-  // Apply saved API keys to env before any agent runs
-  const settings = await loadSettings();
-  if (settings.openaiKey && !process.env["OPENAI_API_KEY"]) process.env["OPENAI_API_KEY"] = settings.openaiKey;
-  if (settings.openrouterKey && !process.env["OPENROUTER_API_KEY"]) process.env["OPENROUTER_API_KEY"] = settings.openrouterKey;
+  credentialStore = new ProviderCredentialStore({
+    metadataPath: PROVIDER_METADATA_FILE(),
+    secretPath: PROVIDER_SECRET_FILE(),
+    codec: buildCredentialCodec(),
+    validator: validateProviderCredential,
+  });
+  await credentialStore.load();
+  setCredentialResolver((provider) => credentialStore?.resolveRuntimeCredential(provider) ?? null);
 
   createWindow();
 
@@ -215,13 +372,43 @@ ipcMain.handle("set-active-session", async (_event, sessionId: string) => {
   return { ok: true };
 });
 
-/** Get persisted API key settings. */
-ipcMain.handle("get-settings", async () => loadSettings());
+ipcMain.handle("get-provider-statuses", async () => ensureCredentialStore().getAllProviderStatuses());
 
-/** Save API key settings and apply to process.env. */
-ipcMain.handle("save-settings", async (_event, settings: AppSettings) => {
-  await saveSettings(settings);
-});
+ipcMain.handle("get-provider-status", async (_event, provider: Provider) =>
+  ensureCredentialStore().getProviderStatus(provider),
+);
+
+ipcMain.handle(
+  "test-provider-credential",
+  async (_event, provider: Provider, source: CredentialSource, secret: string | null) => {
+    const store = ensureCredentialStore();
+    return store.testCredential({ provider, source, secret });
+  },
+);
+
+ipcMain.handle(
+  "save-provider-credential",
+  async (_event, provider: Provider, source: CredentialSource, secret: string | null) => {
+    const store = ensureCredentialStore();
+    return store.saveCredential({ provider, source, secret });
+  },
+);
+
+ipcMain.handle(
+  "delete-provider-credential",
+  async (_event, provider: Provider, source: CredentialSource) => {
+    const store = ensureCredentialStore();
+    return store.deleteCredential({ provider, source });
+  },
+);
+
+ipcMain.handle(
+  "set-provider-active-source",
+  async (_event, provider: Provider, source: CredentialSource) => {
+    const store = ensureCredentialStore();
+    return store.setActiveSource(provider, source);
+  },
+);
 
 /** Write a brief file and return its path. */
 ipcMain.handle("write-brief", async (_event, content: string) => {

@@ -1,5 +1,20 @@
 import { z } from "zod";
 
+export const CREDENTIAL_SOURCES = ["api_key", "claude_auth"] as const;
+export type CredentialSource = (typeof CREDENTIAL_SOURCES)[number];
+export const CredentialSourceSchema = z.enum(CREDENTIAL_SOURCES);
+
+export const PROVIDER_CREDENTIAL_SOURCES: Record<Provider, readonly CredentialSource[]> = {
+  openai: ["api_key"],
+  anthropic: ["claude_auth", "api_key"],
+  openrouter: ["api_key"],
+};
+
+export const CREDENTIAL_SOURCE_LABELS: Record<CredentialSource, string> = {
+  api_key: "API key",
+  claude_auth: "Claude auth",
+};
+
 export const PROVIDER_MODELS = {
   openai: [
     { value: "gpt-5.4",       label: "GPT-5.4",        description: "Latest flagship model" },
@@ -28,6 +43,46 @@ export const PROVIDERS: readonly { value: Provider; label: string }[] = [
   { value: "openai",     label: "OpenAI" },
   { value: "openrouter", label: "OpenRouter" },
 ];
+
+export const PROVIDER_LABELS: Record<Provider, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  openrouter: "OpenRouter",
+};
+
+export const PROVIDER_ACCESS_STATES = ["missing", "testing", "ready", "invalid"] as const;
+export type ProviderAccessState = (typeof PROVIDER_ACCESS_STATES)[number];
+export const ProviderAccessStateSchema = z.enum(PROVIDER_ACCESS_STATES);
+
+export interface ProviderSourceStatus {
+  source: CredentialSource;
+  state: ProviderAccessState;
+  lastValidatedAt: string | null;
+  errorMessage: string | null;
+}
+
+export interface ProviderStatus {
+  provider: Provider;
+  state: ProviderAccessState;
+  source: CredentialSource | null;
+  activeSource: CredentialSource | null;
+  lastValidatedAt: string | null;
+  errorMessage: string | null;
+  supportedSources: readonly CredentialSource[];
+  sources: Partial<Record<CredentialSource, ProviderSourceStatus>>;
+}
+
+export const PROVIDER_CAPABILITIES: Record<
+  Provider,
+  {
+    supportedSources: readonly CredentialSource[];
+    defaultSource: CredentialSource;
+  }
+> = {
+  openai: { supportedSources: ["api_key"], defaultSource: "api_key" },
+  anthropic: { supportedSources: ["claude_auth", "api_key"], defaultSource: "claude_auth" },
+  openrouter: { supportedSources: ["api_key"], defaultSource: "api_key" },
+};
 
 export const SUPPORTED_MODELS = [
   // OpenAI
@@ -69,4 +124,12 @@ export function getModelInfo(model: SupportedModel): { label: string; descriptio
     if (found) return found;
   }
   return { label: model, description: "" };
+}
+
+export function getProviderLabel(provider: Provider): string {
+  return PROVIDER_LABELS[provider];
+}
+
+export function getCredentialSourceLabel(source: CredentialSource): string {
+  return CREDENTIAL_SOURCE_LABELS[source];
 }

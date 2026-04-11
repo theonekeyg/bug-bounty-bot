@@ -1,29 +1,30 @@
 /**
  * Electron UI smoke tests using Playwright.
  * Run: bun test:ui
- *
- * Checks that:
- * - The app launches without crashing
- * - Core layout elements are visible
- * - The permission overlay is hidden on startup
- * - The form fields are interactable
  */
 
 import { test, expect, _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 const APP_PATH = join(import.meta.dirname, "..", "ui", "main.js");
 
 async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
+  const userDataDir = mkdtempSync(join(tmpdir(), "bug-bounty-ui-"));
   const app = await electron.launch({
-    args: ["--no-sandbox", APP_PATH],
+    args: ["--no-sandbox", `--user-data-dir=${userDataDir}`, APP_PATH],
     executablePath: join(import.meta.dirname, "..", "node_modules", ".bin", "electron"),
     env: { ...process.env, ELECTRON_IS_TEST: "1" },
   });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   return { app, page };
+}
+
+async function getProviderStatus(page: Page, provider: "openai" | "anthropic" | "openrouter") {
+  return page.evaluate((selectedProvider) => window.bugBounty.getProviderStatus(selectedProvider), provider);
 }
 
 test.describe("Bug Bounty Agent UI", () => {
@@ -39,124 +40,92 @@ test.describe("Bug Bounty Agent UI", () => {
   });
 
   test("launches without crash and shows title", async () => {
-    const title = await page.title();
-    expect(title).toBe("Bug Bounty Agent");
+    expect(await page.title()).toBe("Bug Bounty Agent");
   });
 
-  test("sidebar form fields are visible", async () => {
-    await expect(page.locator("#target")).toBeVisible();
-    await expect(page.locator("#goal")).toBeVisible();
-    await expect(page.locator("#scope")).toBeVisible();
-    await expect(page.locator("#boxer-url")).toBeVisible();
-    await expect(page.locator("#start-btn")).toBeVisible();
+  test("provider access is visible and the start action is locked on first launch", async () => {
+    await expect(page.locator("#provider-access")).toBeVisible();
+    await expect(page.locator("#provider-access-summary")).toHaveText("0/3 ready");
+    await expect(page.locator("#start-btn")).toBeDisabled();
+    await expect(page.locator("#start-btn")).toHaveText("Set up Anthropic to continue");
+    await expect(page.locator("#start-hint")).toContainText("Anthropic");
   });
 
-  test("permission overlay is hidden on startup", async () => {
-    const overlay = page.locator("#permission-overlay");
-    await expect(overlay).toBeHidden();
+  test("provider cards surface every provider with explicit readiness", async () => {
+    const statuses = await page.evaluate(() => window.bugBounty.getProviderStatuses());
+    expect(statuses).toHaveLength(3);
+    expect(statuses.every((status) => status.state === "missing")).toBe(true);
+    await expect(page.locator("#provider-cards")).toContainText("OpenAI");
+    await expect(page.locator("#provider-cards")).toContainText("Anthropic");
+    await expect(page.locator("#provider-cards")).toContainText("OpenRouter");
   });
 
-  test("welcome message is visible, progress view is hidden", async () => {
-    await expect(page.locator("#welcome")).toBeVisible();
-    await expect(page.locator("#progress-view")).toBeHidden();
+  test("anthropic setup exposes both supported access sources", async () => {
+    await expect(page.locator("#provider-setup-provider")).toHaveText("Anthropic");
+    await expect(page.locator("#provider-source-switch")).toContainText("Claude auth");
+    await expect(page.locator("#provider-source-switch")).toContainText("API key");
+
+    await page.locator("#provider-source-switch").getByText("API key").click();
+    await expect(page.locator("#provider-secret-field")).toBeVisible();
+    await expect(page.locator("#provider-secret-label")).toHaveText("API key");
+
+    await page.locator("#provider-source-switch").getByText("Claude auth").click();
+    await expect(page.locator("#provider-secret-field")).toBeHidden();
+    await expect(page.locator("#provider-secret-label")).toHaveText("Claude auth");
   });
 
-  test("sidebar and main panel are side by side (flex row layout)", async () => {
-    const sidebar = page.locator(".sidebar");
-    const main = page.locator(".main");
-
-    const sidebarBox = await sidebar.boundingBox();
-    const mainBox = await main.boundingBox();
-
-    expect(sidebarBox).not.toBeNull();
-    expect(mainBox).not.toBeNull();
-
-    // Sidebar should be to the LEFT of main (x + width ≈ main.x)
-    expect(sidebarBox!.x).toBeLessThan(mainBox!.x);
-    // They should be on the same vertical level
-    expect(Math.abs(sidebarBox!.y - mainBox!.y)).toBeLessThan(10);
-  });
-
-  test("takes screenshot for visual inspection", async () => {
-    await page.screenshot({ path: "tests/screenshots/startup.png", fullPage: true });
-  });
-
-  test("Start Research with empty fields shows validation feedback", async () => {
-    await page.locator("#start-btn").click();
-    // Button should NOT disable/change state — validation should block
-    await expect(page.locator("#start-btn")).toBeEnabled();
-    await expect(page.locator("#welcome")).toBeVisible(); // still on welcome screen
-  });
-
-  test("Start Research with filled fields gives user feedback within 3s", async () => {
-    await page.locator("#target").fill("Test Target");
-    await page.locator("#goal").fill("Find auth bypass");
-    await page.locator("#scope").fill("In scope: everything");
-
-    // Listen for any dialog (alert) that might appear
-    const dialogMessages: string[] = [];
-    page.on("dialog", async (dialog) => {
-      dialogMessages.push(dialog.message());
-      await dialog.dismiss();
-    });
-
-    await page.locator("#start-btn").click();
-
-    // Wait up to 3s for SOME user-visible feedback:
-    // either button state change, error dialog, or status update
-    await page.waitForTimeout(3000);
-
-    const btnText = await page.locator("#start-btn").textContent();
-    const btnDisabled = await page.locator("#start-btn").isDisabled();
-
-    // Must have SOME feedback — button changed or dialog shown
-    const hasFeedback = btnText !== "Start Research" || btnDisabled || dialogMessages.length > 0;
-    expect(hasFeedback, `No feedback shown. btn="${btnText}" disabled=${btnDisabled} dialogs=${JSON.stringify(dialogMessages)}`).toBe(true);
-  });
-
-  test("model picker opens and shows provider list", async () => {
+  test("model picker shows all providers and their model groups", async () => {
     await page.locator("#model-trigger").click();
     await expect(page.locator("#model-menu")).toBeVisible();
     await expect(page.locator("#model-menu").getByText("OpenAI")).toBeVisible();
     await expect(page.locator("#model-menu").getByText("Anthropic")).toBeVisible();
-  });
+    await expect(page.locator("#model-menu").getByText("OpenRouter")).toBeVisible();
 
-  test("model picker: clicking OpenAI shows OpenAI models", async () => {
-    await page.locator("#model-trigger").click();
     await page.locator("#model-menu").getByText("OpenAI").click();
     await expect(page.locator("#model-menu").getByText("GPT-5.4 Mini")).toBeVisible();
     await expect(page.locator("#model-menu").getByText("GPT-5.3 Codex")).toBeVisible();
-  });
 
-  test("model picker: clicking Anthropic shows Claude models", async () => {
-    await page.locator("#model-trigger").click();
+    await page.locator(".dropdown-back").click();
     await page.locator("#model-menu").getByText("Anthropic").click();
     await expect(page.locator("#model-menu").getByText("Claude Opus 4.6")).toBeVisible();
     await expect(page.locator("#model-menu").getByText("Claude Haiku 4.5")).toBeVisible();
+
+    await page.locator(".dropdown-back").click();
+    await page.locator("#model-menu").getByText("OpenRouter").click();
+    await expect(page.locator("#model-menu").getByText("Qwen3 Plus")).toBeVisible();
+    await expect(page.locator("#model-menu").getByRole("button", { name: /GLM-4 Plus/ })).toBeVisible();
   });
 
-  test("model picker: selecting a model updates the trigger label", async () => {
+  test("selecting a locked model opens its provider setup without closing the picker", async () => {
     await page.locator("#model-trigger").click();
     await page.locator("#model-menu").getByText("OpenAI").click();
     await page.locator("#model-menu").getByText("GPT-5.4 Mini").click();
-    await expect(page.locator("#model-menu")).toBeHidden();
-    await expect(page.locator("#model-value")).toHaveText("GPT-5.4 Mini");
-  });
 
-  test("model picker: back button returns to provider list", async () => {
-    await page.locator("#model-trigger").click();
-    await page.locator("#model-menu").getByText("Anthropic").click();
-    await expect(page.locator("#model-menu").getByText("Claude Opus 4.6")).toBeVisible();
-    // Click the back button (contains "Anthropic" text)
-    await page.locator(".dropdown-back").click();
-    await expect(page.locator("#model-menu").getByText("OpenAI")).toBeVisible();
-    await expect(page.locator("#model-menu").getByText("Anthropic")).toBeVisible();
-  });
-
-  test("model picker: closes when clicking outside", async () => {
-    await page.locator("#model-trigger").click();
     await expect(page.locator("#model-menu")).toBeVisible();
-    await page.locator("#target").click();
-    await expect(page.locator("#model-menu")).toBeHidden();
+    await expect(page.locator("#provider-setup-provider")).toHaveText("OpenAI");
+    await expect(page.locator("#provider-setup-state")).toHaveText("Not set");
+    await expect(page.locator("#start-btn")).toHaveText("Set up OpenAI to continue");
+    await expect(page.locator("#start-btn")).toBeDisabled();
+  });
+
+  test("saving anthropic Claude auth unlocks start and survives a reload", async () => {
+    await expect(page.locator("#provider-setup-provider")).toHaveText("Anthropic");
+    await page.locator("#provider-source-switch").getByText("Claude auth").click();
+    await page.locator("#provider-save").click();
+
+    await expect(page.locator("#provider-setup-state")).toHaveText("Ready");
+    await expect(page.locator("#start-btn")).toHaveText("Start Research");
+    await expect(page.locator("#start-btn")).toBeEnabled();
+
+    const status = await getProviderStatus(page, "anthropic");
+    expect(status.state).toBe("ready");
+    expect(status.activeSource).toBe("claude_auth");
+
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("#provider-setup-provider")).toHaveText("Anthropic");
+    await expect(page.locator("#provider-setup-state")).toHaveText("Ready");
+    await expect(page.locator("#start-btn")).toHaveText("Start Research");
+    expect((await getProviderStatus(page, "anthropic")).state).toBe("ready");
   });
 });
