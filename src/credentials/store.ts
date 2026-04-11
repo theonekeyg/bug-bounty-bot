@@ -1,11 +1,14 @@
 import { mkdir, readFile, writeFile, unlink } from "fs/promises";
-import { dirname } from "path";
+import { dirname, join } from "path";
+import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import type {
   CredentialSource,
   Provider,
   ProviderSourceStatus,
   ProviderStatus,
 } from "../types/provider.js";
+import { PROVIDER_CREDENTIAL_SOURCES } from "../types/provider.js";
 
 export type SecretCodec = {
   isAvailable: () => boolean;
@@ -40,7 +43,7 @@ function nowIso(): string {
 }
 
 function isCredentialSource(value: string): value is CredentialSource {
-  return value === "api_key" || value === "claude_auth";
+  return value === "api_key" || value === "claude_auth" || value === "codex_auth";
 }
 
 function emptyStatus(source: CredentialSource): StoredSourceStatus {
@@ -58,6 +61,24 @@ function statusFromStored(source: CredentialSource, stored?: StoredSourceStatus)
     lastValidatedAt: stored?.lastValidatedAt ?? null,
     errorMessage: stored?.errorMessage ?? null,
   };
+}
+
+const CODEX_AUTH_FILE = join(homedir(), ".codex", "auth.json");
+
+function readCodexAccessToken(): string | null {
+  if (!existsSync(CODEX_AUTH_FILE)) return null;
+  try {
+    const raw = readFileSync(CODEX_AUTH_FILE, "utf-8");
+    const parsed = JSON.parse(raw) as {
+      auth_mode?: string;
+      tokens?: { access_token?: string | null };
+    };
+    if (parsed.auth_mode !== "chatgpt") return null;
+    const token = parsed.tokens?.access_token ?? null;
+    return token && token.trim().length > 0 ? token : null;
+  } catch {
+    return null;
+  }
 }
 
 export class ProviderCredentialStore {
@@ -171,10 +192,9 @@ export class ProviderCredentialStore {
 
   getProviderStatus(provider: Provider): ProviderStatus {
     const stored = this.metadata[provider] ?? this.createProviderState(provider);
-    const supportedSources: readonly CredentialSource[] =
-      provider === "anthropic" ? ["claude_auth", "api_key"] : ["api_key"];
+    const supportedSources = PROVIDER_CREDENTIAL_SOURCES[provider];
     const sources = Object.fromEntries(
-      supportedSources.map((source) => [source, statusFromStored(source, stored.sources[source])]),
+      supportedSources.map((source) => [source, this.resolveStoredSourceStatus(provider, source, stored.sources[source])]),
     ) as Partial<Record<CredentialSource, ProviderSourceStatus>>;
 
     const activeSource = stored.activeSource ?? this.pickNextActiveSource(provider);
@@ -208,6 +228,13 @@ export class ProviderCredentialStore {
       return { provider, source, secret: null };
     }
 
+    if (source === "codex_auth") {
+      const secret = readCodexAccessToken();
+      if (!secret) return null;
+      if (status.sources[source]?.state !== "ready") return null;
+      return { provider, source, secret };
+    }
+
     const secret = this.secrets[provider]?.[source] ?? null;
     if (!secret) return null;
     if (status.sources[source]?.state !== "ready") return null;
@@ -215,8 +242,7 @@ export class ProviderCredentialStore {
   }
 
   private createProviderState(provider: Provider): StoredProviderState {
-    const supportedSources: readonly CredentialSource[] =
-      provider === "anthropic" ? ["claude_auth", "api_key"] : ["api_key"];
+    const supportedSources = PROVIDER_CREDENTIAL_SOURCES[provider];
     return {
       activeSource: null,
       sources: Object.fromEntries(supportedSources.map((source) => [source, emptyStatus(source)])) as Partial<
@@ -230,7 +256,7 @@ export class ProviderCredentialStore {
     if (!state) return null;
     const preferred = state.activeSource;
     if (preferred && state.sources[preferred]?.state === "ready") return preferred;
-    for (const source of ["claude_auth", "api_key"] as const) {
+    for (const source of PROVIDER_CREDENTIAL_SOURCES[provider]) {
       if (state.sources[source]?.state === "ready") return source;
     }
     return null;
@@ -252,8 +278,7 @@ export class ProviderCredentialStore {
     const providers: Provider[] = ["openai", "anthropic", "openrouter"];
     for (const provider of providers) {
       const state = this.metadata[provider] ?? this.createProviderState(provider);
-      const supportedSources: readonly CredentialSource[] =
-        provider === "anthropic" ? ["claude_auth", "api_key"] : ["api_key"];
+      const supportedSources = PROVIDER_CREDENTIAL_SOURCES[provider];
 
       for (const source of supportedSources) {
         state.sources[source] ??= emptyStatus(source);
@@ -321,6 +346,30 @@ export class ProviderCredentialStore {
     return dirname(path);
   }
 
+  private resolveStoredSourceStatus(
+    provider: Provider,
+    source: CredentialSource,
+    stored?: StoredSourceStatus,
+  ): ProviderSourceStatus {
+    if (provider === "openai" && source === "codex_auth") {
+      const liveSecret = readCodexAccessToken();
+      if (!liveSecret) {
+        return statusFromStored(source, {
+          state: "missing",
+          lastValidatedAt: stored?.lastValidatedAt ?? null,
+          errorMessage: stored?.errorMessage ?? null,
+        });
+      }
+      return statusFromStored(source, {
+        state: "ready",
+        lastValidatedAt: stored?.lastValidatedAt ?? nowIso(),
+        errorMessage: null,
+      });
+    }
+
+    return statusFromStored(source, stored);
+  }
+
   private hasSecrets(): boolean {
     return Object.values(this.secrets).some((providerSecrets) =>
       providerSecrets !== undefined && Object.values(providerSecrets).some((secret) => secret.length > 0),
@@ -328,7 +377,7 @@ export class ProviderCredentialStore {
   }
 
   private assertSourceSupported(provider: Provider, source: CredentialSource): void {
-    const supported = provider === "anthropic" ? ["claude_auth", "api_key"] : ["api_key"];
+    const supported = PROVIDER_CREDENTIAL_SOURCES[provider];
     if (!supported.includes(source)) {
       throw new Error(`${source} is not supported for ${provider}`);
     }

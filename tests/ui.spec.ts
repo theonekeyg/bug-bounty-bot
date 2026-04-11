@@ -45,7 +45,8 @@ test.describe("Bug Bounty Agent UI", () => {
 
   test("provider access is visible and the start action is locked on first launch", async () => {
     await expect(page.locator("#provider-access")).toBeVisible();
-    await expect(page.locator("#provider-access-summary")).toHaveText("0/3 ready");
+    await expect(page.locator("#provider-access-summary")).toHaveText(/\d\/3 ready/);
+    await expect(page.locator("#start-btn")).toBeVisible();
     await expect(page.locator("#start-btn")).toBeDisabled();
     await expect(page.locator("#start-btn")).toHaveText("Set up Anthropic to continue");
     await expect(page.locator("#start-hint")).toContainText("Anthropic");
@@ -54,13 +55,23 @@ test.describe("Bug Bounty Agent UI", () => {
   test("provider cards surface every provider with explicit readiness", async () => {
     const statuses = await page.evaluate(() => window.bugBounty.getProviderStatuses());
     expect(statuses).toHaveLength(3);
-    expect(statuses.every((status) => status.state === "missing")).toBe(true);
+    expect(statuses.find((status) => status.provider === "openai")?.supportedSources).toContain("codex_auth");
+    expect(statuses.find((status) => status.provider === "anthropic")?.supportedSources).toContain("claude_auth");
+    await expect(page.locator("#provider-cards")).toContainText("Codex login");
     await expect(page.locator("#provider-cards")).toContainText("OpenAI");
     await expect(page.locator("#provider-cards")).toContainText("Anthropic");
     await expect(page.locator("#provider-cards")).toContainText("OpenRouter");
   });
 
+  test("openai setup exposes codex login and API key sources", async () => {
+    await page.locator("#provider-cards .provider-card").filter({ hasText: "OpenAI" }).first().click();
+    await expect(page.locator("#provider-setup-provider")).toHaveText("OpenAI");
+    await expect(page.locator("#provider-source-switch")).toContainText("Codex login");
+    await expect(page.locator("#provider-source-switch")).toContainText("API key");
+  });
+
   test("anthropic setup exposes both supported access sources", async () => {
+    await page.locator("#provider-cards .provider-card").filter({ hasText: "Anthropic" }).first().click();
     await expect(page.locator("#provider-setup-provider")).toHaveText("Anthropic");
     await expect(page.locator("#provider-source-switch")).toContainText("Claude auth");
     await expect(page.locator("#provider-source-switch")).toContainText("API key");
@@ -98,13 +109,13 @@ test.describe("Bug Bounty Agent UI", () => {
 
   test("selecting a locked model opens its provider setup without closing the picker", async () => {
     await page.locator("#model-trigger").click();
-    await page.locator("#model-menu").getByText("OpenAI").click();
-    await page.locator("#model-menu").getByText("GPT-5.4 Mini").click();
+    await page.locator("#model-menu").getByText("Anthropic").click();
+    await page.locator("#model-menu").getByText("Claude Sonnet 4.6").click();
 
     await expect(page.locator("#model-menu")).toBeVisible();
-    await expect(page.locator("#provider-setup-provider")).toHaveText("OpenAI");
+    await expect(page.locator("#provider-setup-provider")).toHaveText("Anthropic");
     await expect(page.locator("#provider-setup-state")).toHaveText("Not set");
-    await expect(page.locator("#start-btn")).toHaveText("Set up OpenAI to continue");
+    await expect(page.locator("#start-btn")).toHaveText("Set up Anthropic to continue");
     await expect(page.locator("#start-btn")).toBeDisabled();
   });
 

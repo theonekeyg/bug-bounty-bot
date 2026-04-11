@@ -216,14 +216,22 @@ function getProviderSetupInstructions(provider: Provider, source: CredentialSour
   if (provider === "anthropic" && source === "claude_auth") {
     return "This uses your local Claude Code login. Save will mark the provider ready once the auth session is available.";
   }
+  if (provider === "openai" && source === "codex_auth") {
+    return "This uses your local Codex login. If you are not signed in yet, run `codex login` in a terminal first, then save here.";
+  }
   return "Enter the credential, test it, and save it to unlock this provider.";
 }
 
 function getProviderSourcePlaceholder(provider: Provider, source: CredentialSource): string {
+  if (source === "codex_auth") return "No API key needed";
+  if (source === "claude_auth") return "No API key needed";
   if (provider === "openai") return "sk-...";
   if (provider === "openrouter") return "sk-or-...";
-  if (source === "claude_auth") return "No API key needed";
   return "sk-ant-...";
+}
+
+function isAuthSource(source: CredentialSource): boolean {
+  return source === "claude_auth" || source === "codex_auth";
 }
 
 function openProviderSetup(provider: Provider, source?: CredentialSource): void {
@@ -289,22 +297,24 @@ function renderProviderSetup(): void {
   }
 
   providerSecretLabel.textContent = sourceLabel;
-  if (source === "claude_auth") {
+  if (isAuthSource(source)) {
     providerSecretInput.value = "";
   }
   providerSecretInput.placeholder = getProviderSourcePlaceholder(provider, source);
-  providerSecretField.classList.toggle("hidden", source === "claude_auth");
+  providerSecretField.classList.toggle("hidden", isAuthSource(source));
 
   providerSetupHint.textContent =
     status.state === "ready"
       ? `Active source: ${sourceLabel}. Last validated ${status.lastValidatedAt ? formatRelativeTime(status.lastValidatedAt) : "just now"}.`
-      : activeStatus?.errorMessage ?? (source === "claude_auth"
-          ? "No Claude auth session is saved yet."
-          : `No ${sourceLabel} is saved yet.`);
+      : activeStatus?.errorMessage ?? (source === "codex_auth"
+          ? "No Codex login is saved yet."
+          : source === "claude_auth"
+            ? "No Claude auth session is saved yet."
+            : `No ${sourceLabel} is saved yet.`);
 
-  providerTestBtn.textContent = source === "claude_auth" ? "Test auth" : "Test";
-  providerSaveBtn.textContent = source === "claude_auth" ? `Save ${sourceLabel}` : "Save";
-  providerDeleteBtn.textContent = source === "claude_auth" ? "Clear auth" : "Delete";
+  providerTestBtn.textContent = isAuthSource(source) ? "Test login" : "Test";
+  providerSaveBtn.textContent = isAuthSource(source) ? `Save ${sourceLabel}` : "Save";
+  providerDeleteBtn.textContent = isAuthSource(source) ? "Clear login" : "Delete";
   providerDeleteBtn.disabled = activeStatus?.state === "missing";
   providerSaveBtn.disabled = false;
   providerTestBtn.disabled = false;
@@ -1384,7 +1394,7 @@ providerSetupTarget = getSelectedProvider();
 async function saveSelectedProviderCredential(): Promise<void> {
   const provider = providerSetupTarget ?? getSelectedProvider();
   const source = getProviderSetupSource(provider);
-  const secret = source === "claude_auth" ? null : providerSecretInput.value.trim();
+  const secret = isAuthSource(source) ? null : providerSecretInput.value.trim();
 
   providerSaveBtn.disabled = true;
   providerSaveBtn.textContent = "Saving…";
@@ -1392,7 +1402,7 @@ async function saveSelectedProviderCredential(): Promise<void> {
 
   try {
     await api.saveProviderCredential(provider, source, secret);
-    if (source !== "claude_auth") {
+    if (!isAuthSource(source)) {
       providerSecretInput.value = "";
     }
     await refreshProviderStatuses();
@@ -1400,14 +1410,14 @@ async function saveSelectedProviderCredential(): Promise<void> {
     providerSetupHint.textContent = error instanceof Error ? error.message : String(error);
   } finally {
     providerSaveBtn.disabled = false;
-    providerSaveBtn.textContent = source === "claude_auth" ? `Save ${getCredentialSourceLabel(source)}` : "Save";
+    providerSaveBtn.textContent = isAuthSource(source) ? `Save ${getCredentialSourceLabel(source)}` : "Save";
   }
 }
 
 async function testSelectedProviderCredential(): Promise<void> {
   const provider = providerSetupTarget ?? getSelectedProvider();
   const source = getProviderSetupSource(provider);
-  const secret = source === "claude_auth" ? null : providerSecretInput.value.trim();
+  const secret = isAuthSource(source) ? null : providerSecretInput.value.trim();
 
   providerTestBtn.disabled = true;
   providerTestBtn.textContent = "Testing…";
@@ -1422,7 +1432,7 @@ async function testSelectedProviderCredential(): Promise<void> {
     providerSetupHint.textContent = error instanceof Error ? error.message : String(error);
   } finally {
     providerTestBtn.disabled = false;
-    providerTestBtn.textContent = source === "claude_auth" ? "Test auth" : "Test";
+    providerTestBtn.textContent = isAuthSource(source) ? "Test login" : "Test";
   }
 }
 
@@ -1442,7 +1452,7 @@ async function deleteSelectedProviderCredential(): Promise<void> {
     providerSetupHint.textContent = error instanceof Error ? error.message : String(error);
   } finally {
     providerDeleteBtn.disabled = false;
-    providerDeleteBtn.textContent = source === "claude_auth" ? "Clear auth" : "Delete";
+    providerDeleteBtn.textContent = isAuthSource(source) ? "Clear login" : "Delete";
   }
 }
 

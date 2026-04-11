@@ -1,11 +1,11 @@
 import { z } from "zod";
 
-export const CREDENTIAL_SOURCES = ["api_key", "claude_auth"] as const;
+export const CREDENTIAL_SOURCES = ["api_key", "claude_auth", "codex_auth"] as const;
 export type CredentialSource = (typeof CREDENTIAL_SOURCES)[number];
 export const CredentialSourceSchema = z.enum(CREDENTIAL_SOURCES);
 
 export const PROVIDER_CREDENTIAL_SOURCES: Record<Provider, readonly CredentialSource[]> = {
-  openai: ["api_key"],
+  openai: ["codex_auth", "api_key"],
   anthropic: ["claude_auth", "api_key"],
   openrouter: ["api_key"],
 };
@@ -13,6 +13,7 @@ export const PROVIDER_CREDENTIAL_SOURCES: Record<Provider, readonly CredentialSo
 export const CREDENTIAL_SOURCE_LABELS: Record<CredentialSource, string> = {
   api_key: "API key",
   claude_auth: "Claude auth",
+  codex_auth: "Codex login",
 };
 
 export const PROVIDER_MODELS = {
@@ -79,7 +80,7 @@ export const PROVIDER_CAPABILITIES: Record<
     defaultSource: CredentialSource;
   }
 > = {
-  openai: { supportedSources: ["api_key"], defaultSource: "api_key" },
+  openai: { supportedSources: ["codex_auth", "api_key"], defaultSource: "codex_auth" },
   anthropic: { supportedSources: ["claude_auth", "api_key"], defaultSource: "claude_auth" },
   openrouter: { supportedSources: ["api_key"], defaultSource: "api_key" },
 };

@@ -127,6 +127,28 @@ async function validateOpenAIKey(secret: string): Promise<CredentialValidationRe
   }
 }
 
+async function validateOpenAICodexAuth(): Promise<CredentialValidationResult> {
+  if (process.env["ELECTRON_IS_TEST"] === "1") {
+    return { ok: true };
+  }
+
+  try {
+    const { stdout } = await execFileAsync("codex", ["login", "status"], {
+      env: process.env,
+      maxBuffer: 1024 * 1024,
+    });
+    if (!/logged in using chatgpt/i.test(stdout)) {
+      return {
+        ok: false,
+        errorMessage: "Codex login is not using ChatGPT subscription access. Run `codex logout` and `codex` to switch.",
+      };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, errorMessage: humanizeCredentialError("Codex login", error) };
+  }
+}
+
 async function validateOpenRouterKey(secret: string): Promise<CredentialValidationResult> {
   if (process.env["ELECTRON_IS_TEST"] === "1") {
     return secret.trim().length > 0 ? { ok: true } : { ok: false, errorMessage: "OpenRouter key is required." };
@@ -196,7 +218,7 @@ async function validateProviderCredential(input: {
 }): Promise<CredentialValidationResult> {
   switch (input.provider) {
     case "openai":
-      return validateOpenAIKey(input.secret ?? "");
+      return input.source === "codex_auth" ? validateOpenAICodexAuth() : validateOpenAIKey(input.secret ?? "");
     case "openrouter":
       return validateOpenRouterKey(input.secret ?? "");
     case "anthropic":
@@ -398,6 +420,16 @@ ipcMain.handle(
   "delete-provider-credential",
   async (_event, provider: Provider, source: CredentialSource) => {
     const store = ensureCredentialStore();
+    if (provider === "openai" && source === "codex_auth") {
+      try {
+        await execFileAsync("codex", ["logout"], {
+          env: process.env,
+          maxBuffer: 1024 * 1024,
+        });
+      } catch (error) {
+        throw new Error(humanizeCredentialError("Codex logout", error));
+      }
+    }
     return store.deleteCredential({ provider, source });
   },
 );
