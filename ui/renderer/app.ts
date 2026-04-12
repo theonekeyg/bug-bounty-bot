@@ -142,6 +142,7 @@ let sessionHeadlineText = "Preparing session...";
 let sessionDetailText = "Live runtime updates will appear here.";
 let sessionLastUpdated: string | null = null;
 let sessionStartedAt: string | null = null;
+let activeSessionStatus: SessionInfo["status"] | "idle" = "idle";
 let currentStates: TrackState[] = [];
 const trackHeadlineById = new Map<string, string>();
 const trackStageById = new Map<string, string>();
@@ -442,6 +443,8 @@ function summarizeTrack(state: TrackState): string {
 }
 
 function getSessionHealth(): { label: string; tone: "" | "warning" | "error" } {
+  if (activeSessionStatus === "crashed") return { label: "Stopped", tone: "warning" };
+  if (activeSessionStatus === "failed") return { label: "Failed", tone: "error" };
   const latest = runtimeEvents.at(-1);
   if (pendingInstall) return { label: "Needs approval", tone: "warning" };
   
@@ -454,6 +457,20 @@ function getSessionHealth(): { label: string; tone: "" | "warning" | "error" } {
   if (latest?.severity === "error") return { label: "Attention needed", tone: "error" };
   if (latest?.severity === "warning") return { label: "Watching closely", tone: "warning" };
   return { label: "Healthy", tone: "" };
+}
+
+function resetSessionActionButtons(): void {
+  stopSessionBtn.disabled = false;
+  stopSessionBtn.textContent = "Stop";
+  resumeSessionBtn.disabled = false;
+  resumeSessionBtn.textContent = "Resume";
+}
+
+function applySessionActionButtons(status: SessionInfo["status"] | "idle"): void {
+  activeSessionStatus = status;
+  resetSessionActionButtons();
+  stopSessionBtn.style.display = status === "running" ? "" : "none";
+  resumeSessionBtn.style.display = status === "crashed" || status === "failed" ? "" : "none";
 }
 
 function stageKeyForStage(stage: string): string {
@@ -492,10 +509,12 @@ function resetRuntimeState(): void {
   sessionDetailText = "Live runtime updates will appear here.";
   sessionLastUpdated = null;
   sessionStartedAt = null;
+  activeSessionStatus = "idle";
   currentStates = [];
   trackHeadlineById.clear();
   trackStageById.clear();
   document.body.classList.remove("session-live");
+  resetSessionActionButtons();
   renderSessionSummary();
   renderStageRail();
   renderMilestones();
@@ -541,14 +560,26 @@ function renderSessionSummary(): void {
   sessionElapsed.textContent = formatElapsed(sessionStartedAt);
   sessionActivityState.textContent = sessionStage;
   sessionTrackCount.textContent = `${currentStates.filter((state) => state.status === "running").length} live`;
-  sessionActionState.textContent = pendingInstall ? "Approval required" : "No action required";
-  overviewSubtitle.textContent = pendingInstall
-    ? "Runtime paused on an action requiring approval"
-    : "Meaningful progress is surfaced here, transport noise stays out of the way";
-  overviewTrackCaption.textContent = currentStates.length > 0
-    ? `${currentStates.length} track${currentStates.length === 1 ? "" : "s"} in circulation`
-    : "Researchers will appear here after orchestration";
-  actionCenterCaption.textContent = pendingInstall ? "Action needed to continue" : "Watching for blockers";
+  sessionActionState.textContent = activeSessionStatus === "crashed"
+    ? "Resume available"
+    : pendingInstall
+      ? "Approval required"
+      : "No action required";
+  overviewSubtitle.textContent = activeSessionStatus === "crashed"
+    ? "This session is paused. Resume when you want to continue from the saved state."
+    : pendingInstall
+      ? "Runtime paused on an action requiring approval"
+      : "Meaningful progress is surfaced here, transport noise stays out of the way";
+  overviewTrackCaption.textContent = activeSessionStatus === "crashed"
+    ? "Resume to continue creating and updating tracks"
+    : currentStates.length > 0
+      ? `${currentStates.length} track${currentStates.length === 1 ? "" : "s"} in circulation`
+      : "Researchers will appear here after orchestration";
+  actionCenterCaption.textContent = activeSessionStatus === "crashed"
+    ? "Resume to continue"
+    : pendingInstall
+      ? "Action needed to continue"
+      : "Watching for blockers";
 
   runtimeHealthDot.className = `runtime-health-dot ${health.tone}`.trim();
   runtimeHealthLabel.textContent = health.label;
@@ -1242,6 +1273,7 @@ async function attachOrResumeSession(s: SessionInfo): Promise<void> {
   activeSessionId = s.id;
   activeSessionStateDir = await api.getSessionStateDir(s.id);
   await api.setActiveSession(s.id);
+  let nextSession = s;
 
   if (s.status === "crashed") {
     // Resume in background
@@ -1254,9 +1286,10 @@ async function attachOrResumeSession(s: SessionInfo): Promise<void> {
       startBtn.textContent = "Start Research";
       return;
     }
+    nextSession = { ...s, status: "running" };
   }
 
-  await openSession(s);
+  await openSession(nextSession);
   // Re-launch polling and load events
   await replaySessionEvents(s.id);
   startPolling();
@@ -1269,6 +1302,7 @@ async function openSession(s: SessionInfo): Promise<void> {
 
   resetRuntimeState();
   document.body.classList.add("session-live");
+  applySessionActionButtons(s.status);
   activeTrackId = "orchestrator";
   activeTitle.textContent = "orchestrator";
   activeStatusDot.className = "status-dot " + (s.status === "running" ? "running" : s.status === "completed" ? "found" : "blocked");
@@ -1277,13 +1311,10 @@ async function openSession(s: SessionInfo): Promise<void> {
   runtimeBoxer.textContent = s.boxerUrl;
   runtimeSessionCard.classList.remove("hidden");
 
-  // Show stop button only for running sessions; resume for stopped/crashed
-  stopSessionBtn.style.display = s.status === "running" ? "" : "none";
-  resumeSessionBtn.style.display = (s.status === "crashed" || s.status === "failed") ? "" : "none";
-
   sessionsView.style.display = "none";
   welcome.style.display = "none";
   progressView.style.display = "flex";
+  refreshStartActionUI?.();
 }
 
 async function replaySessionEvents(sessionId: string): Promise<void> {
@@ -1338,7 +1369,7 @@ backToSessionsBtn.addEventListener("click", async () => {
   resetRuntimeState();
   runtimeSessionCard.classList.add("hidden");
   setSessionConfigLocked(false);
-  startBtn.textContent = "Start Research";
+  refreshStartActionUI?.();
   await initSessionsView();
 });
 
@@ -1353,8 +1384,22 @@ stopSessionBtn.addEventListener("click", async () => {
     stopSessionBtn.textContent = "Stop";
     return;
   }
-  stopSessionBtn.style.display = "none";
-  resumeSessionBtn.style.display = "";
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  activeSessionStatus = "crashed";
+  sessionStage = "Stopped";
+  sessionHeadlineText = "Research session stopped";
+  sessionDetailText = "Stopped by user. Resume to continue from the saved session state.";
+  sessionLastUpdated = new Date().toISOString();
+  pendingInstall = null;
+  applySessionActionButtons("crashed");
+  renderTracks(currentStates);
+  renderSessionSummary();
+  renderOverviewTrackGrid();
+  renderTracksGrid();
+  renderActionCenter();
   activeStatusDot.className = "status-dot blocked";
 });
 
@@ -1370,10 +1415,18 @@ resumeSessionBtn.addEventListener("click", async () => {
     resumeSessionBtn.textContent = "Resume";
     return;
   }
-  resumeSessionBtn.style.display = "none";
-  stopSessionBtn.disabled = false;
-  stopSessionBtn.textContent = "Stop";
-  stopSessionBtn.style.display = "";
+  activeSessionStatus = "running";
+  sessionStage = "Resuming";
+  sessionHeadlineText = "Resuming research session";
+  sessionDetailText = "Reloading saved state and restarting orchestration.";
+  sessionLastUpdated = new Date().toISOString();
+  pendingInstall = null;
+  applySessionActionButtons("running");
+  renderTracks(currentStates);
+  renderSessionSummary();
+  renderOverviewTrackGrid();
+  renderTracksGrid();
+  renderActionCenter();
   activeStatusDot.className = "status-dot running";
   startPolling();
 });
@@ -1519,6 +1572,7 @@ startBtn.addEventListener("click", async () => {
   resetRuntimeState();
   sessionsView.style.display = "none";
   document.body.classList.add("session-live");
+  applySessionActionButtons("running");
   activeTrackId = "orchestrator";
   activeTitle.textContent = "orchestrator";
   activeStatusDot.className = "status-dot running";
@@ -1579,15 +1633,16 @@ async function poll(): Promise<void> {
 
 function renderTracks(states: TrackState[]): void {
   if (states.length === 0) {
-    // Orchestrator is still running — show a synthetic entry so the UI isn't blank
+    const syntheticStatus = activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running";
+    const syntheticLabel = syntheticStatus === "blocked" ? "stopped" : "running";
     tracksContainer.innerHTML = "";
     const card = document.createElement("div");
     card.className = "track-card active";
     card.innerHTML = `
       <div class="track-header">
-        <span class="status-dot running"></span>
+        <span class="status-dot ${syntheticStatus}"></span>
         <span class="track-id">orchestrator</span>
-        <span style="font-size:11px;color:var(--muted)">running</span>
+        <span style="font-size:11px;color:var(--muted)">${syntheticLabel}</span>
       </div>
       <div class="track-hypo">${sessionHeadlineText}</div>
     `;
@@ -1595,7 +1650,7 @@ function renderTracks(states: TrackState[]): void {
     if (!activeTrackId) {
       activeTrackId = "orchestrator";
       activeTitle.textContent = "orchestrator";
-      activeStatusDot.className = "status-dot running";
+      activeStatusDot.className = `status-dot ${syntheticStatus}`;
     }
     return;
   }
@@ -1979,6 +2034,7 @@ api.onResearchError((err: string) => {
   startBtn.textContent = "Start Research";
   setSessionConfigLocked(false);
   document.body.classList.remove("session-live");
+  applySessionActionButtons("failed");
   sessionStage = "Failed";
   sessionHeadlineText = "Research session failed";
   sessionDetailText = err;
@@ -1987,3 +2043,31 @@ api.onResearchError((err: string) => {
   renderActionCenter();
   alert(`Research error: ${err}`);
 });
+
+(window as Window & {
+  __bugBountyTest?: {
+    simulateStoppedSessionUi: () => void;
+  };
+}).__bugBountyTest = {
+  simulateStoppedSessionUi: () => {
+    document.body.classList.add("session-live");
+    progressView.style.display = "flex";
+    sessionsView.style.display = "none";
+    welcome.style.display = "none";
+    activeTrackId = "orchestrator";
+    activeSessionStatus = "crashed";
+    sessionStage = "Stopped";
+    sessionHeadlineText = "Research session stopped";
+    sessionDetailText = "Stopped by user. Resume to continue from the saved session state.";
+    sessionLastUpdated = new Date().toISOString();
+    currentStates = [];
+    pendingInstall = null;
+    applySessionActionButtons("crashed");
+    renderTracks(currentStates);
+    renderSessionSummary();
+    renderOverviewTrackGrid();
+    renderTracksGrid();
+    renderActionCenter();
+    activeStatusDot.className = "status-dot blocked";
+  },
+};

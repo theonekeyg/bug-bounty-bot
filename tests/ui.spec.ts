@@ -65,6 +65,23 @@ test.describe("Bug Bounty Agent UI", () => {
     await expect(page.locator("#resume-session-btn")).toHaveClass(/btn-compact/);
   });
 
+  test("stopped sessions render a resumable paused state", async () => {
+    await page.evaluate(() => {
+      (window as Window & {
+        __bugBountyTest: { simulateStoppedSessionUi: () => void };
+      }).__bugBountyTest.simulateStoppedSessionUi();
+    });
+
+    await expect(page.locator("#resume-session-btn")).toBeVisible();
+    await expect(page.locator("#resume-session-btn")).toBeEnabled();
+    await expect(page.locator("#resume-session-btn")).toHaveText("Resume");
+    await expect(page.locator("#stop-session-btn")).toBeHidden();
+    await expect(page.locator("#session-health-pill")).toHaveText("Stopped");
+    await expect(page.locator("#session-action-state")).toHaveText("Resume available");
+    await expect(page.locator("#tracks-container")).toContainText("stopped");
+    await expect(page.locator("#tracks-container")).toContainText("Research session stopped");
+  });
+
   test("provider cards surface every provider with explicit readiness", async () => {
     const statuses = await page.evaluate(() => window.bugBounty.getProviderStatuses());
     expect(statuses).toHaveLength(3);
