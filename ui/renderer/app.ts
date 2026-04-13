@@ -3,7 +3,7 @@
  * Communicates with main process via window.bugBounty (preload bridge).
  */
 
-import type { BugBountyAPI, SessionInfo, AgentTurnInfo } from "../preload.js";
+import type { BugBountyAPI, SessionInfo, AgentTurnInfo, TrackFileInfo } from "../preload.js";
 import type { TrackState, PendingInstall, RuntimeEvent } from "../../src/types/index.js";
 import type { AgentThinkingEvent, AgentTurnEvent, AgentToolProgressEvent } from "../../src/ipc/bus.js";
 import {
@@ -33,6 +33,7 @@ type DropdownOption = {
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
+// ── Sidebar (brief form) ─────────────────────────────────────────────────────
 const sessionsView = el("sessions-view");
 const sessionsList = el("sessions-list");
 const newSessionBtn = el<HTMLButtonElement>("new-session-btn");
@@ -64,56 +65,42 @@ const providerDeleteBtn = el<HTMLButtonElement>("provider-delete");
 const startHint = el("start-hint");
 const welcome = el("welcome");
 const progressView = el("progress-view");
+
+// ── Session header ───────────────────────────────────────────────────────────
 const sessionStagePill = el("session-stage-pill");
 const sessionHealthPill = el("session-health-pill");
-const sessionLastActivity = el("session-last-activity");
-const sessionUpdatedAt = el("session-updated-at");
-const sessionHeadline = el("session-headline");
-const sessionDetail = el("session-detail");
 const sessionElapsed = el("session-elapsed");
-const sessionActivityState = el("session-activity-state");
-const sessionTrackCount = el("session-track-count");
-const sessionActionState = el("session-action-state");
-const overviewSubtitle = el("overview-subtitle");
-const overviewTrackCaption = el("overview-track-caption");
-const actionCenterCaption = el("action-center-caption");
-const milestoneList = el("milestone-list");
-const overviewTrackGrid = el("overview-track-grid");
-const actionCenter = el("action-center");
-const overviewTab = el<HTMLButtonElement>("overview-tab");
-const tracksTab = el<HTMLButtonElement>("tracks-tab");
-const activityTab = el<HTMLButtonElement>("activity-tab");
-const reasoningTab = el<HTMLButtonElement>("reasoning-tab");
-const debugTab = el<HTMLButtonElement>("debug-tab");
-const overviewPanel = el("overview-panel");
-const tracksPanel = el("tracks-panel");
-const activityPanel = el("activity-panel");
-const reasoningPanel = el("reasoning-panel");
-const debugPanel = el("debug-panel");
-// Activity panel elements
-const activityAgentBadge = el("activity-agent-badge");
-const activityAgentName = el("activity-agent-name");
-const activityStats = el("activity-stats");
-const activityEmpty = el("activity-empty");
-const activityIterations = el("activity-iterations");
-// Reasoning panel elements
-const reasoningAgentBadge = el("reasoning-agent-badge");
-const reasoningAgentName = el("reasoning-agent-name");
-const tokenTotals = el("token-totals");
-const reasoningEmpty = el("reasoning-empty");
-const reasoningTurns = el("reasoning-turns");
-const liveThinking = el("live-thinking");
-const liveThinkingText = el("live-thinking-text");
-const tracksGrid = el("tracks-grid");
-const tracksPanelCaption = el("tracks-panel-caption");
-const progressLog = el("progress-log");
+const sessionCost = el("session-cost");
 const activeTitle = el("active-track-title");
-const activeStatusDot = el("active-status-dot");
+const debugToggleBtn = el<HTMLButtonElement>("debug-toggle-btn");
+const backToSessionsBtn = el<HTMLButtonElement>("back-to-sessions");
+const stopSessionBtn = el<HTMLButtonElement>("stop-session-btn");
+const resumeSessionBtn = el<HTMLButtonElement>("resume-session-btn");
+
+// ── Session layout ───────────────────────────────────────────────────────────
+const sidebarTrackList = el("sidebar-track-list");
+const actionBanner = el("action-banner");
+const tracksOverview = el("tracks-overview");
+const trackDetail = el("track-detail");
+const trackTokenStats = el("track-token-stats");
+const stepsTab = el<HTMLButtonElement>("steps-tab");
+const filesTab = el<HTMLButtonElement>("files-tab");
+const stepsPanel = el("steps-panel");
+const filesPanel = el("files-panel");
+const fileList = el("file-list");
+const fileViewer = el("file-viewer");
+const timelineIterations = el("timeline-iterations");
+const debugPanelNew = el("debug-panel-new");
+const progressLog = el("progress-log");
+
+// ── Permission overlay ───────────────────────────────────────────────────────
 const permissionOverlay = el("permission-overlay");
 const permJustification = el("perm-justification");
 const permCommand = el("perm-command");
 const permApprove = el<HTMLButtonElement>("perm-approve");
 const permDeny = el<HTMLButtonElement>("perm-deny");
+
+// ── Sidebar form misc ────────────────────────────────────────────────────────
 const modelInput = el<HTMLInputElement>("model-name");
 const maxTracksInput = el<HTMLInputElement>("max-tracks");
 const maxTracksLabel = el("max-tracks-label");
@@ -123,31 +110,38 @@ const runtimeTarget = el("runtime-target");
 const runtimeModel = el("runtime-model");
 const runtimeBoxer = el("runtime-boxer");
 const runtimeHealthLabel = el("runtime-health-label");
-const stageRail = el("stage-rail");
-const backToSessionsBtn = el<HTMLButtonElement>("back-to-sessions");
-const stopSessionBtn = el<HTMLButtonElement>("stop-session-btn");
-const resumeSessionBtn = el<HTMLButtonElement>("resume-session-btn");
 
+// ── State ────────────────────────────────────────────────────────────────────
 let activeSessionId: string | null = null;
 let activeSessionStateDir: string | null = null;
-let activeTrackId: string | null = null;
+let activeSessionModel = "";
+let activeTrackId: string | null = null;  // kept for progress-log polling
+let selectedTrackId: string | null = null; // null = "All Tracks"
+let subView: "steps" | "files" = "steps";
+let debugMode = false;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
-let activeView: "overview" | "tracks" | "activity" | "reasoning" | "debug" = "overview";
-let activityTrackId: string | null = null;
-let activityPollInterval: ReturnType<typeof setInterval> | null = null;
 let runtimeEvents: RuntimeEvent[] = [];
 let sessionStage = "Starting";
 let sessionHeadlineText = "Preparing session...";
-let sessionDetailText = "Live runtime updates will appear here.";
 let sessionLastUpdated: string | null = null;
 let sessionStartedAt: string | null = null;
 let activeSessionStatus: SessionInfo["status"] | "idle" = "idle";
 let currentStates: TrackState[] = [];
 const trackHeadlineById = new Map<string, string>();
 const trackStageById = new Map<string, string>();
-let milestoneEvents: RuntimeEvent[] = [];
-const milestoneSignatures: string[] = [];
+
+// Token accumulation
+let sessionInputTokens = 0;
+let sessionOutputTokens = 0;
+let sessionCacheReadTokens = 0;
+let sessionCacheWriteTokens = 0;
+const trackTokensById = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>();
+
+// Live iteration streaming
+let liveIterationEl: HTMLElement | null = null;
+let liveThinkingStreamEl: HTMLElement | null = null;
+let liveThinkingTextEl: HTMLElement | null = null;
 let providerStatuses: ProviderStatus[] = [];
 let providerSetupTarget: Provider | null = null;
 let providerSetupSourceByProvider = new Map<Provider, CredentialSource>();
@@ -473,77 +467,38 @@ function applySessionActionButtons(status: SessionInfo["status"] | "idle"): void
   resumeSessionBtn.style.display = status === "crashed" || status === "failed" ? "" : "none";
 }
 
-function stageKeyForStage(stage: string): string {
-  const normalized = stage.toLowerCase();
-  if (normalized.includes("brief") || normalized.includes("preparing") || normalized.includes("loading")) return "brief";
-  if (normalized.includes("surface") || normalized.includes("attack")) return "surface";
-  if (normalized.includes("launching") || normalized.includes("track")) return "tracks";
-  if (normalized.includes("research") || normalized.includes("investigat") || normalized.includes("waiting")) return "research";
-  if (normalized.includes("report")) return "report";
-  return "brief";
-}
-
-function milestoneSignature(event: RuntimeEvent): string {
-  return `${event.kind}|${event.scope}|${event.trackId ?? "session"}|${event.title}|${event.detail ?? ""}|${event.stage ?? ""}`;
-}
-
-function isMilestoneEvent(event: RuntimeEvent): boolean {
-  return (
-    event.kind === "session_started" ||
-    event.kind === "track_created" ||
-    event.kind === "track_status_changed" ||
-    event.kind === "permission_required" ||
-    event.kind === "error" ||
-    event.kind === "session_completed" ||
-    (event.kind === "stage_changed" && !event.stage?.toLowerCase().includes("generating output")) ||
-    (event.kind === "waiting" && event.scope === "session")
-  );
-}
-
 function resetRuntimeState(): void {
   runtimeEvents = [];
-  milestoneEvents = [];
-  milestoneSignatures.length = 0;
   sessionStage = "Starting";
   sessionHeadlineText = "Preparing session...";
-  sessionDetailText = "Live runtime updates will appear here.";
   sessionLastUpdated = null;
   sessionStartedAt = null;
   activeSessionStatus = "idle";
   currentStates = [];
   trackHeadlineById.clear();
   trackStageById.clear();
+  sessionInputTokens = 0;
+  sessionOutputTokens = 0;
+  sessionCacheReadTokens = 0;
+  sessionCacheWriteTokens = 0;
+  trackTokensById.clear();
+  selectedTrackId = null;
+  subView = "steps";
+  debugMode = false;
+  clearLiveIteration();
   document.body.classList.remove("session-live");
   resetSessionActionButtons();
+  // Ensure correct panel visibility for "All Tracks" default state
+  tracksOverview.classList.remove("hidden");
+  trackDetail.classList.add("hidden");
+  debugPanelNew.classList.add("hidden");
+  debugToggleBtn.classList.remove("active");
+  trackTokenStats.classList.add("hidden");
   renderSessionSummary();
-  renderStageRail();
-  renderMilestones();
-  renderOverviewTrackGrid();
-  renderTracksGrid();
-  renderActionCenter();
-}
-
-function setActiveView(view: "overview" | "tracks" | "activity" | "reasoning" | "debug"): void {
-  activeView = view;
-  overviewTab.classList.toggle("active", view === "overview");
-  tracksTab.classList.toggle("active", view === "tracks");
-  activityTab.classList.toggle("active", view === "activity");
-  reasoningTab.classList.toggle("active", view === "reasoning");
-  debugTab.classList.toggle("active", view === "debug");
-  overviewPanel.classList.toggle("hidden", view !== "overview");
-  tracksPanel.classList.toggle("hidden", view !== "tracks");
-  activityPanel.classList.toggle("hidden", view !== "activity");
-  reasoningPanel.classList.toggle("hidden", view !== "reasoning");
-  debugPanel.classList.toggle("hidden", view !== "debug");
-
-  if ((view === "activity" || view === "reasoning") && activeSessionId) {
-    const trackId = activityTrackId ?? "orchestrator";
-    void loadAgentActivity(trackId);
-    if (view === "activity") startActivityPolling(trackId);
-    else stopActivityPolling();
-  } else {
-    stopActivityPolling();
-  }
+  renderTrackSidebar();
+  renderActionBanner();
+  renderTracksOverview();
+  timelineIterations.innerHTML = "";
 }
 
 function renderSessionSummary(): void {
@@ -551,226 +506,296 @@ function renderSessionSummary(): void {
   sessionStagePill.textContent = sessionStage;
   sessionHealthPill.textContent = health.label;
   sessionHealthPill.className = `health-pill ${health.tone}`.trim();
-  sessionLastActivity.textContent = `Last activity ${formatRelativeTime(sessionLastUpdated)}`;
-  sessionHeadline.textContent = sessionHeadlineText;
-  sessionDetail.textContent = sessionDetailText;
-  sessionUpdatedAt.textContent = sessionLastUpdated
-    ? `Last update ${formatEventTime(sessionLastUpdated)}`
-    : "Session initiated just now";
   sessionElapsed.textContent = formatElapsed(sessionStartedAt);
-  sessionActivityState.textContent = sessionStage;
-  sessionTrackCount.textContent = `${currentStates.filter((state) => state.status === "running").length} live`;
-  sessionActionState.textContent = activeSessionStatus === "crashed"
-    ? "Resume available"
-    : pendingInstall
-      ? "Approval required"
-      : "No action required";
-  overviewSubtitle.textContent = activeSessionStatus === "crashed"
-    ? "This session is paused. Resume when you want to continue from the saved state."
-    : pendingInstall
-      ? "Runtime paused on an action requiring approval"
-      : "Meaningful progress is surfaced here, transport noise stays out of the way";
-  overviewTrackCaption.textContent = activeSessionStatus === "crashed"
-    ? "Resume to continue creating and updating tracks"
-    : currentStates.length > 0
-      ? `${currentStates.length} track${currentStates.length === 1 ? "" : "s"} in circulation`
-      : "Researchers will appear here after orchestration";
-  actionCenterCaption.textContent = activeSessionStatus === "crashed"
-    ? "Resume to continue"
-    : pendingInstall
-      ? "Action needed to continue"
-      : "Watching for blockers";
 
   runtimeHealthDot.className = `runtime-health-dot ${health.tone}`.trim();
   runtimeHealthLabel.textContent = health.label;
 }
 
-function renderStageRail(): void {
-  const activeKey = stageKeyForStage(sessionStage);
-  const stageOrder = ["brief", "surface", "tracks", "research", "report"];
-  const activeIndex = stageOrder.indexOf(activeKey);
+// ── Token tracking ────────────────────────────────────────────────────────────
 
-  Array.from(stageRail.querySelectorAll<HTMLElement>(".stage-step")).forEach((step) => {
-    const key = step.dataset.stageKey ?? "brief";
-    const idx = stageOrder.indexOf(key);
-    const statusLabel = step.querySelector<HTMLElement>(".stage-step-status");
-    if (!statusLabel) return;
+const PRICE_TABLE: Record<string, { input: number; output: number; cacheRead: number }> = {
+  "claude-sonnet": { input: 3, output: 15, cacheRead: 0.3 },
+  "claude-haiku":  { input: 0.8, output: 4, cacheRead: 0.08 },
+  "claude-opus":   { input: 15, output: 75, cacheRead: 1.5 },
+  "gpt-4o":        { input: 5, output: 15, cacheRead: 0 },
+  "gpt-4-turbo":   { input: 10, output: 30, cacheRead: 0 },
+};
 
-    step.classList.remove("complete", "active", "pending");
-    if (idx < activeIndex) {
-      step.classList.add("complete");
-      statusLabel.textContent = "Complete";
-      return;
-    }
-    if (idx === activeIndex) {
-      step.classList.add("active");
-      statusLabel.textContent = "Live";
-      return;
-    }
-    step.classList.add("pending");
-    statusLabel.textContent = "Pending";
+function estimateCost(inputTok: number, outputTok: number, cacheReadTok: number, model: string): string {
+  const m = model.toLowerCase();
+  const entry = Object.entries(PRICE_TABLE).find(([key]) => m.includes(key));
+  const prices = entry ? entry[1] : { input: 3, output: 15, cacheRead: 0.3 };
+  const cost = (inputTok * prices.input + outputTok * prices.output + cacheReadTok * prices.cacheRead) / 1_000_000;
+  if (cost === 0) return "";
+  return cost < 0.01 ? "<$0.01" : `~$${cost.toFixed(2)}`;
+}
+
+function accumulateTokens(turn: AgentTurnInfo): void {
+  const existing = trackTokensById.get(turn.trackId) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  trackTokensById.set(turn.trackId, {
+    input: existing.input + turn.inputTokens,
+    output: existing.output + turn.outputTokens,
+    cacheRead: existing.cacheRead + turn.cacheReadTokens,
+    cacheWrite: existing.cacheWrite + turn.cacheWriteTokens,
   });
+  sessionInputTokens += turn.inputTokens;
+  sessionOutputTokens += turn.outputTokens;
+  sessionCacheReadTokens += turn.cacheReadTokens;
+  sessionCacheWriteTokens += turn.cacheWriteTokens;
+
+  const costStr = estimateCost(sessionInputTokens, sessionOutputTokens, sessionCacheReadTokens, activeSessionModel);
+  if (costStr) {
+    sessionCost.textContent = costStr;
+    sessionCost.style.display = "";
+  }
+
+  if (selectedTrackId === turn.trackId) renderTrackTokenStats(turn.trackId);
+  renderTrackSidebar();
 }
 
-function renderMilestones(): void {
-  milestoneList.innerHTML = "";
-  const milestones = milestoneEvents.slice(-8);
-
-  if (milestones.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "milestone-detail";
-    empty.textContent = "The orchestrator is warming up. Milestones will appear here as meaningful progress lands.";
-    milestoneList.appendChild(empty);
+function renderTrackTokenStats(trackId: string): void {
+  const toks = trackTokensById.get(trackId);
+  if (!toks || (toks.input + toks.output) === 0) {
+    trackTokenStats.classList.add("hidden");
     return;
   }
-
-  for (const event of milestones) {
-    const row = document.createElement("div");
-    row.className = "milestone-row";
-
-    const time = document.createElement("div");
-    time.className = "milestone-time";
-    time.textContent = formatEventTime(event.timestamp);
-
-    const content = document.createElement("div");
-    content.className = "milestone-content";
-
-    const chip = document.createElement("div");
-    chip.className = "milestone-chip";
-    chip.textContent = event.trackId ? event.trackId : event.kind.replaceAll("_", " ");
-
-    const title = document.createElement("div");
-    title.className = "milestone-title";
-    title.textContent = event.title;
-
-    const detail = document.createElement("div");
-    detail.className = "milestone-detail";
-    detail.textContent = event.detail ?? event.stage ?? "";
-
-    content.append(chip, title, detail);
-    row.append(time, content);
-    milestoneList.appendChild(row);
-  }
+  const costStr = estimateCost(toks.input, toks.output, toks.cacheRead, activeSessionModel);
+  trackTokenStats.classList.remove("hidden");
+  trackTokenStats.innerHTML = `
+    <span><strong>${fmtNum(toks.input)}</strong> in</span>
+    <span><strong>${fmtNum(toks.output)}</strong> out</span>
+    ${toks.cacheRead > 0 ? `<span><strong>${fmtNum(toks.cacheRead)}</strong> cache read</span>` : ""}
+    ${toks.cacheWrite > 0 ? `<span><strong>${fmtNum(toks.cacheWrite)}</strong> cache write</span>` : ""}
+    ${costStr ? `<span class="tok-cost">${costStr}</span>` : ""}
+  `;
 }
 
-function renderOverviewTrackGrid(): void {
-  overviewTrackGrid.innerHTML = "";
+// ── Track sidebar ─────────────────────────────────────────────────────────────
 
-  if (currentStates.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "action-center-item";
-    empty.innerHTML = `<strong>Orchestrator only</strong><p>Attack-surface mapping is still underway. Research tracks will appear here as soon as hypotheses are created.</p>`;
-    overviewTrackGrid.appendChild(empty);
-    return;
-  }
+function renderTrackSidebar(): void {
+  sidebarTrackList.innerHTML = "";
 
-  for (const state of currentStates.slice(0, 4)) {
-    const card = document.createElement("article");
-    card.className = "track-overview-card";
-    card.innerHTML = `
-      <div class="track-overview-top">
-        <div>
-          <h4>${humanizeTrackTitle(state.trackId, state.hypothesis)}</h4>
-          <p>${trackStageById.get(state.trackId) ?? "Queued for investigation"}</p>
-        </div>
-        <div class="track-status-pill ${state.status}">${state.status}</div>
-      </div>
-      <p>${summarizeTrack(state)}</p>
-      <div class="track-overview-meta">
-        <span>Updated ${formatRelativeTime(state.updatedAt)}</span>
-        <span>${state.trackId}</span>
-      </div>
-    `;
-    overviewTrackGrid.appendChild(card);
-  }
-}
+  // "All Tracks" entry
+  const allItem = document.createElement("div");
+  allItem.className = `sidebar-track-item ${selectedTrackId === null ? "active" : ""}`;
+  const allDot = document.createElement("span");
+  allDot.className = `status-dot ${activeSessionStatus === "running" ? "running" : activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : ""}`;
+  const allBody = document.createElement("div");
+  allBody.className = "sidebar-track-body";
+  allBody.innerHTML = `<div class="sidebar-track-name">All Tracks</div><div class="sidebar-track-stage">${currentStates.length} track${currentStates.length === 1 ? "" : "s"}</div>`;
+  allItem.append(allDot, allBody);
+  allItem.addEventListener("click", () => void setSelectedTrack(null));
+  sidebarTrackList.appendChild(allItem);
 
-function renderTracksGrid(): void {
-  tracksGrid.innerHTML = "";
+  const divider = document.createElement("div");
+  divider.className = "sidebar-divider";
+  sidebarTrackList.appendChild(divider);
 
-  if (currentStates.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "action-center-item";
-    empty.innerHTML = `<strong>No researcher tracks yet</strong><p>The orchestrator is still mapping the target and defining hypotheses.</p>`;
-    tracksGrid.appendChild(empty);
-    tracksPanelCaption.textContent = "Track details will appear after orchestration";
-    return;
-  }
+  // Orchestrator (always shown)
+  const orchStatus = activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running";
+  sidebarTrackList.appendChild(buildSidebarItem("orchestrator", orchStatus, sessionHeadlineText));
 
-  tracksPanelCaption.textContent = `${currentStates.length} track${currentStates.length === 1 ? "" : "s"} currently known`;
+  // Researcher tracks
   for (const state of currentStates) {
-    const card = document.createElement("article");
-    card.className = "track-overview-card";
-    card.innerHTML = `
-      <div class="track-overview-top">
-        <div>
-          <h4>${humanizeTrackTitle(state.trackId, state.hypothesis)}</h4>
-          <p>${trackStageById.get(state.trackId) ?? "Running analysis"}</p>
-        </div>
-        <div class="track-status-pill ${state.status}">${state.status}</div>
-      </div>
-      <p>${summarizeTrack(state)}</p>
-      <div class="track-overview-meta">
-        <span>Last update ${formatRelativeTime(state.updatedAt)}</span>
-        <span>${state.trackId}</span>
-      </div>
-    `;
-    tracksGrid.appendChild(card);
+    const item = buildSidebarItem(state.trackId, state.status, trackStageById.get(state.trackId) ?? state.hypothesis);
+    sidebarTrackList.appendChild(item);
   }
 }
 
-function renderActionCenter(): void {
-  actionCenter.innerHTML = "";
+function buildSidebarItem(trackId: string, status: string, stageSummary: string): HTMLElement {
+  const item = document.createElement("div");
+  item.className = `sidebar-track-item ${selectedTrackId === trackId ? "active" : ""}`;
 
+  const dot = document.createElement("span");
+  dot.className = `status-dot ${status}`;
+
+  const body = document.createElement("div");
+  body.className = "sidebar-track-body";
+
+  const nameEl = document.createElement("div");
+  nameEl.className = "sidebar-track-name";
+  nameEl.textContent = humanizeTrackTitle(trackId);
+
+  const stageEl = document.createElement("div");
+  stageEl.className = "sidebar-track-stage";
+  stageEl.textContent = stageSummary.slice(0, 60);
+
+  const footer = document.createElement("div");
+  footer.className = "sidebar-track-footer";
+
+  const statusEl = document.createElement("span");
+  statusEl.className = `sidebar-track-status ${status}`;
+  statusEl.textContent = status;
+
+  const toks = trackTokensById.get(trackId);
+  const totalTok = toks ? toks.input + toks.output : 0;
+  if (totalTok > 0) {
+    const tokEl = document.createElement("span");
+    tokEl.className = "sidebar-track-tokens";
+    tokEl.textContent = totalTok >= 1000 ? `${(totalTok / 1000).toFixed(1)}k tok` : `${totalTok} tok`;
+    footer.append(statusEl, tokEl);
+  } else {
+    footer.append(statusEl);
+  }
+
+  body.append(nameEl, stageEl, footer);
+  item.append(dot, body);
+  item.addEventListener("click", () => void setSelectedTrack(trackId));
+  return item;
+}
+
+// ── Track selection ───────────────────────────────────────────────────────────
+
+async function setSelectedTrack(trackId: string | null): Promise<void> {
+  selectedTrackId = trackId;
+  renderTrackSidebar();
+
+  if (trackId === null) {
+    // Show "All Tracks" overview
+    tracksOverview.classList.remove("hidden");
+    trackDetail.classList.add("hidden");
+    renderTracksOverview();
+  } else {
+    // Show per-track detail
+    tracksOverview.classList.add("hidden");
+    trackDetail.classList.remove("hidden");
+    subView = "steps";
+    setSubView("steps");
+    renderTrackTokenStats(trackId);
+    timelineIterations.innerHTML = "";
+    clearLiveIteration();
+    if (activeSessionId) {
+      const turns = await api.getAgentActivity(activeSessionId, trackId);
+      renderUnifiedTimeline(trackId, turns);
+    }
+    // Sync for progress log
+    activeTrackId = trackId;
+    if (activeSessionStateDir) {
+      const path = `${activeSessionStateDir}/research/${trackId}/progress.md`;
+      const content = await api.readFile(path);
+      if (content !== null) {
+        progressLog.textContent = content;
+      }
+    }
+  }
+}
+
+function setSubView(view: "steps" | "files"): void {
+  subView = view;
+  stepsTab.classList.toggle("active", view === "steps");
+  filesTab.classList.toggle("active", view === "files");
+  stepsPanel.classList.toggle("hidden", view !== "steps");
+  filesPanel.classList.toggle("hidden", view !== "files");
+  if (view === "files" && selectedTrackId) {
+    void loadTrackFiles(selectedTrackId);
+  }
+}
+
+function toggleDebugMode(): void {
+  debugMode = !debugMode;
+  debugToggleBtn.classList.toggle("active", debugMode);
+  debugPanelNew.classList.toggle("hidden", !debugMode);
+  trackDetail.classList.toggle("hidden", debugMode || selectedTrackId === null);
+  tracksOverview.classList.toggle("hidden", debugMode || selectedTrackId !== null);
+}
+
+// ── Tracks overview (All Tracks view) ────────────────────────────────────────
+
+function renderTracksOverview(): void {
+  tracksOverview.innerHTML = "";
+
+  // Orchestrator card
+  const orchCard = buildTrackOverviewCard("orchestrator", activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running", sessionHeadlineText);
+  tracksOverview.appendChild(orchCard);
+
+  for (const state of currentStates) {
+    const card = buildTrackOverviewCard(state.trackId, state.status, trackStageById.get(state.trackId) ?? state.hypothesis, state.updatedAt);
+    tracksOverview.appendChild(card);
+  }
+
+  if (currentStates.length === 0) {
+    const msg = document.createElement("p");
+    msg.style.cssText = "grid-column:1/-1; padding:12px; font-size:12px; color:var(--muted)";
+    msg.textContent = "Researcher tracks will appear here as the orchestrator creates them.";
+    tracksOverview.appendChild(msg);
+  }
+}
+
+function buildTrackOverviewCard(trackId: string, status: string, stageSummary: string, updatedAt?: string): HTMLElement {
+  const toks = trackTokensById.get(trackId);
+  const totalTok = toks ? toks.input + toks.output : 0;
+  const tokStr = totalTok > 0 ? `${totalTok >= 1000 ? (totalTok / 1000).toFixed(1) + "k" : totalTok} tok` : "";
+
+  const card = document.createElement("article");
+  card.className = "track-overview-card";
+  card.innerHTML = `
+    <div class="track-overview-top">
+      <div>
+        <h4>${escHtml(humanizeTrackTitle(trackId))}</h4>
+        <p>${escHtml(stageSummary.slice(0, 80))}</p>
+      </div>
+      <div class="track-status-pill ${status}">${status}</div>
+    </div>
+    <div class="track-overview-meta">
+      ${updatedAt ? `<span>Updated ${formatRelativeTime(updatedAt)}</span>` : ""}
+      ${tokStr ? `<span>${tokStr}</span>` : ""}
+      <span>${escHtml(trackId)}</span>
+    </div>
+  `;
+  card.addEventListener("click", () => void setSelectedTrack(trackId));
+  return card;
+}
+
+// ── Action banner ─────────────────────────────────────────────────────────────
+
+function renderActionBanner(): void {
   if (pendingInstall) {
-    const item = document.createElement("div");
-    item.className = "action-center-item";
-    item.innerHTML = `<strong>Approval required for ${pendingInstall.trackId}</strong><p>${pendingInstall.justification}</p>`;
-    actionCenter.appendChild(item);
+    actionBanner.classList.remove("hidden");
+    actionBanner.className = "action-banner warning";
+    actionBanner.innerHTML = `
+      <strong>Approval required</strong>
+      <span>${escHtml(pendingInstall.justification.slice(0, 120))}</span>
+      <div class="action-banner-actions">
+        <button class="btn-sm btn-approve" id="banner-approve">Approve</button>
+        <button class="btn-sm btn-deny" id="banner-deny">Deny</button>
+      </div>
+    `;
+    actionBanner.querySelector("#banner-approve")?.addEventListener("click", () => {
+      permJustification.textContent = pendingInstall!.justification;
+      permCommand.textContent = pendingInstall!.command;
+      permissionOverlay.classList.remove("hidden");
+    });
+    actionBanner.querySelector("#banner-deny")?.addEventListener("click", async () => {
+      if (!pendingInstall) return;
+      await api.resolveInstall(pendingInstall.trackId, false, pendingInstall);
+      pendingInstall = null;
+      renderActionBanner();
+    });
     return;
   }
 
-  // Check for API limit errors first (highest priority)
-  const apiLimitEvent = runtimeEvents.find(event => 
-    event.kind === "error" && event.title === "API limit reached"
-  );
+  const apiLimitEvent = runtimeEvents.find(e => e.kind === "error" && e.title === "API limit reached");
   if (apiLimitEvent) {
-    const item = document.createElement("div");
-    item.className = "action-center-item api-limit-alert";
-    item.innerHTML = `
-      <strong>🚫 API Limit Reached</strong>
-      <p>${apiLimitEvent.detail ?? apiLimitEvent.title}</p>
-      <div class="api-limit-actions">
-        <button onclick="window.open('https://platform.openai.com/account/usage', '_blank')" class="api-limit-btn">Check OpenAI Usage</button>
-        <button onclick="window.open('https://console.anthropic.com/settings/plans', '_blank')" class="api-limit-btn">Check Anthropic Usage</button>
-      </div>
-    `;
-    actionCenter.appendChild(item);
+    actionBanner.classList.remove("hidden");
+    actionBanner.className = "action-banner";
+    actionBanner.innerHTML = `<strong>API limit reached</strong><span>${escHtml(apiLimitEvent.detail ?? apiLimitEvent.title)}</span>`;
     return;
   }
 
   const latest = runtimeEvents.at(-1);
   if (latest?.severity === "error") {
-    const item = document.createElement("div");
-    item.className = "action-center-item";
-    item.innerHTML = `<strong>Attention needed</strong><p>${latest.detail ?? latest.title}</p>`;
-    actionCenter.appendChild(item);
+    actionBanner.classList.remove("hidden");
+    actionBanner.className = "action-banner";
+    actionBanner.innerHTML = `<strong>Error</strong><span>${escHtml(latest.detail ?? latest.title)}</span>`;
     return;
   }
 
-  const healthy = document.createElement("div");
-  healthy.className = "action-center-item";
-  healthy.innerHTML = `<strong>No action required</strong><p>The system is progressing normally. If the current phase takes longer than expected, the summary hero will call that out.</p>`;
-  actionCenter.appendChild(healthy);
+  actionBanner.classList.add("hidden");
 }
 
 function applyRuntimeEvent(event: RuntimeEvent): void {
   runtimeEvents.push(event);
-
-  // Debug logging for API limit events
-  if (event.kind === "error" && event.title === "API limit reached") {
-    console.log("🚫 API LIMIT EVENT DETECTED:", event);
-  }
 
   if (event.kind === "session_started" && !sessionStartedAt) {
     sessionStartedAt = event.timestamp;
@@ -778,7 +803,6 @@ function applyRuntimeEvent(event: RuntimeEvent): void {
   if (event.scope === "session") {
     sessionStage = event.stage ?? sessionStage;
     sessionHeadlineText = event.title;
-    sessionDetailText = event.detail ?? event.stage ?? sessionDetailText;
     sessionLastUpdated = event.timestamp;
   }
 
@@ -789,20 +813,10 @@ function applyRuntimeEvent(event: RuntimeEvent): void {
     }
   }
 
-  if (isMilestoneEvent(event)) {
-    const signature = milestoneSignature(event);
-    if (milestoneSignatures.at(-1) !== signature) {
-      milestoneSignatures.push(signature);
-      milestoneEvents.push(event);
-    }
-  }
-
   renderSessionSummary();
-  renderStageRail();
-  renderMilestones();
-  renderOverviewTrackGrid();
-  renderTracksGrid();
-  renderActionCenter();
+  renderTrackSidebar();
+  renderActionBanner();
+  if (selectedTrackId === null) renderTracksOverview();
 }
 
 type DropdownController = {
@@ -1180,7 +1194,6 @@ function createModelPicker(): void {
 }
 
 createModelPicker();
-setActiveView("overview");
 resetRuntimeState();
 renderProviderAccess();
 renderStartAction();
@@ -1298,22 +1311,24 @@ async function attachOrResumeSession(s: SessionInfo): Promise<void> {
 async function openSession(s: SessionInfo): Promise<void> {
   activeSessionId = s.id;
   activeSessionStateDir = await api.getSessionStateDir(s.id);
+  activeSessionModel = s.model;
   await api.setActiveSession(s.id);
 
   resetRuntimeState();
   document.body.classList.add("session-live");
   applySessionActionButtons(s.status);
   activeTrackId = "orchestrator";
-  activeTitle.textContent = "orchestrator";
-  activeStatusDot.className = "status-dot " + (s.status === "running" ? "running" : s.status === "completed" ? "found" : "blocked");
+  activeTitle.textContent = s.target;
   runtimeTarget.textContent = s.target;
   runtimeModel.textContent = s.model;
   runtimeBoxer.textContent = s.boxerUrl;
   runtimeSessionCard.classList.remove("hidden");
+  runtimeHealthDot.className = "runtime-health-dot";
+  runtimeHealthLabel.textContent = "Healthy";
 
   sessionsView.style.display = "none";
   welcome.style.display = "none";
-  progressView.style.display = "flex";
+  progressView.style.display = "";
   refreshStartActionUI?.();
 }
 
@@ -1361,10 +1376,10 @@ backToSessionsBtn.addEventListener("click", async () => {
     clearInterval(pollInterval);
     pollInterval = null;
   }
-  stopActivityPolling();
   progressView.style.display = "none";
   activeSessionId = null;
   activeSessionStateDir = null;
+  activeSessionModel = "";
   activeTrackId = null;
   resetRuntimeState();
   runtimeSessionCard.classList.add("hidden");
@@ -1391,16 +1406,13 @@ stopSessionBtn.addEventListener("click", async () => {
   activeSessionStatus = "crashed";
   sessionStage = "Stopped";
   sessionHeadlineText = "Research session stopped";
-  sessionDetailText = "Stopped by user. Resume to continue from the saved session state.";
   sessionLastUpdated = new Date().toISOString();
   pendingInstall = null;
   applySessionActionButtons("crashed");
-  renderTracks(currentStates);
   renderSessionSummary();
-  renderOverviewTrackGrid();
-  renderTracksGrid();
-  renderActionCenter();
-  activeStatusDot.className = "status-dot blocked";
+  renderTrackSidebar();
+  renderActionBanner();
+  if (selectedTrackId === null) renderTracksOverview();
 });
 
 resumeSessionBtn.addEventListener("click", async () => {
@@ -1418,26 +1430,21 @@ resumeSessionBtn.addEventListener("click", async () => {
   activeSessionStatus = "running";
   sessionStage = "Resuming";
   sessionHeadlineText = "Resuming research session";
-  sessionDetailText = "Reloading saved state and restarting orchestration.";
   sessionLastUpdated = new Date().toISOString();
   pendingInstall = null;
   applySessionActionButtons("running");
-  renderTracks(currentStates);
   renderSessionSummary();
-  renderOverviewTrackGrid();
-  renderTracksGrid();
-  renderActionCenter();
-  activeStatusDot.className = "status-dot running";
+  renderTrackSidebar();
+  renderActionBanner();
+  if (selectedTrackId === null) renderTracksOverview();
   startPolling();
 });
 
 void initSessionsView();
 
-overviewTab.addEventListener("click", () => setActiveView("overview"));
-tracksTab.addEventListener("click", () => setActiveView("tracks"));
-activityTab.addEventListener("click", () => setActiveView("activity"));
-reasoningTab.addEventListener("click", () => setActiveView("reasoning"));
-debugTab.addEventListener("click", () => setActiveView("debug"));
+stepsTab.addEventListener("click", () => setSubView("steps"));
+filesTab.addEventListener("click", () => setSubView("files"));
+debugToggleBtn.addEventListener("click", () => toggleDebugMode());
 
 // ── Provider access persistence ─────────────────────────────────────────────
 
@@ -1575,7 +1582,6 @@ startBtn.addEventListener("click", async () => {
   applySessionActionButtons("running");
   activeTrackId = "orchestrator";
   activeTitle.textContent = "orchestrator";
-  activeStatusDot.className = "status-dot running";
   progressLog.textContent = "";
   runtimeTarget.textContent = target;
   runtimeModel.textContent = getModelInfo(model as SupportedModel).label;
@@ -1592,7 +1598,7 @@ startBtn.addEventListener("click", async () => {
   startPolling();
 
   welcome.style.display = "none";
-  progressView.style.display = "flex";
+  progressView.style.display = "";
   startBtn.textContent = "Research Running";
 });
 
@@ -1609,14 +1615,13 @@ async function poll(): Promise<void> {
   ]);
 
   currentStates = states;
-  renderTracks(states);
   renderSessionSummary();
-  renderOverviewTrackGrid();
-  renderTracksGrid();
-  renderActionCenter();
+  renderTrackSidebar();
+  renderActionBanner();
+  if (selectedTrackId === null) renderTracksOverview();
 
-  // Re-read the active track's log on every poll (catches anything missed between stream events)
-  if (activeTrackId && activeSessionStateDir) {
+  // Re-read progress log when debug mode active
+  if (debugMode && activeTrackId && activeSessionStateDir) {
     const path = `${activeSessionStateDir}/research/${activeTrackId}/progress.md`;
     const content = await api.readFile(path);
     if (content !== null && content !== progressLog.textContent) {
@@ -1631,87 +1636,6 @@ async function poll(): Promise<void> {
   }
 }
 
-function renderTracks(states: TrackState[]): void {
-  if (states.length === 0) {
-    const syntheticStatus = activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running";
-    const syntheticLabel = syntheticStatus === "blocked" ? "stopped" : "running";
-    tracksContainer.innerHTML = "";
-    const card = document.createElement("div");
-    card.className = "track-card active";
-    card.innerHTML = `
-      <div class="track-header">
-        <span class="status-dot ${syntheticStatus}"></span>
-        <span class="track-id">orchestrator</span>
-        <span style="font-size:11px;color:var(--muted)">${syntheticLabel}</span>
-      </div>
-      <div class="track-hypo">${sessionHeadlineText}</div>
-    `;
-    tracksContainer.appendChild(card);
-    if (!activeTrackId) {
-      activeTrackId = "orchestrator";
-      activeTitle.textContent = "orchestrator";
-      activeStatusDot.className = `status-dot ${syntheticStatus}`;
-    }
-    return;
-  }
-
-  tracksContainer.innerHTML = "";
-
-  for (const state of states) {
-    const card = document.createElement("div");
-    card.className = `track-card${state.trackId === activeTrackId ? " active" : ""}`;
-    card.innerHTML = `
-      <div class="track-header">
-        <span class="status-dot ${state.status}"></span>
-        <span class="track-id">${state.trackId}</span>
-        <span style="font-size:11px;color:var(--muted)">${state.status}</span>
-      </div>
-      <div class="track-hypo">${trackHeadlineById.get(state.trackId) ?? trackStageById.get(state.trackId) ?? state.hypothesis}</div>
-    `;
-    card.addEventListener("click", () => selectTrack(state));
-    tracksContainer.appendChild(card);
-  }
-
-  const first = states[0];
-  if ((!activeTrackId || activeTrackId === "orchestrator") && first) void selectTrack(first);
-
-  if (activeTrackId) {
-    const active = states.find((s) => s.trackId === activeTrackId);
-    if (active) {
-      activeStatusDot.className = `status-dot ${active.status}`;
-      activeTitle.textContent = trackStageById.get(active.trackId)
-        ? `${active.trackId} · ${trackStageById.get(active.trackId)}`
-        : active.trackId;
-    }
-  }
-}
-
-async function selectTrack(state: TrackState): Promise<void> {
-  activeTrackId = state.trackId;
-  activeTitle.textContent = trackStageById.get(state.trackId)
-    ? `${state.trackId} · ${trackStageById.get(state.trackId)}`
-    : state.trackId;
-  activeStatusDot.className = `status-dot ${state.status}`;
-
-  const progressPath = activeSessionStateDir
-    ? `${activeSessionStateDir}/research/${state.trackId}/progress.md`
-    : null;
-  const content = progressPath ? await api.readFile(progressPath) : null;
-  progressLog.textContent = content ?? "(no progress yet)";
-  progressLog.scrollTop = progressLog.scrollHeight;
-
-  // Sync activity/reasoning panel to the newly selected track
-  activityTrackId = state.trackId;
-  liveThinkingText.textContent = "";
-  liveThinking.classList.add("hidden");
-  if (activeView === "activity" || activeView === "reasoning") {
-    void loadAgentActivity(state.trackId);
-    if (activeView === "activity") startActivityPolling(state.trackId);
-  }
-
-  const states = await api.getProgress(activeSessionId ?? undefined);
-  renderTracks(states);
-}
 
 function showPermissionPrompt(install: PendingInstall): void {
   pendingInstall = install;
@@ -1734,28 +1658,239 @@ permDeny.addEventListener("click", async () => {
   permissionOverlay.classList.add("hidden");
 });
 
-// ── Activity + Reasoning ──────────────────────────────────────────────────────
+// ── Unified timeline ──────────────────────────────────────────────────────────
 
-function stopActivityPolling(): void {
-  if (activityPollInterval) {
-    clearInterval(activityPollInterval);
-    activityPollInterval = null;
+// Live iteration helpers
+function clearLiveIteration(): void {
+  liveIterationEl?.remove();
+  liveIterationEl = null;
+  liveThinkingStreamEl = null;
+  liveThinkingTextEl = null;
+}
+
+function ensureLiveIteration(): void {
+  if (liveIterationEl) return;
+  const live = document.createElement("div");
+  live.className = "live-iteration";
+  const header = document.createElement("div");
+  header.className = "live-iteration-header";
+  const dot = document.createElement("span");
+  dot.className = "live-dot";
+  const label = document.createElement("span");
+  label.textContent = "Live";
+  header.append(dot, label);
+  const stream = document.createElement("div");
+  stream.className = "live-thinking-stream hidden";
+  const streamLabel = document.createElement("span");
+  streamLabel.className = "thinking-label-sm";
+  streamLabel.textContent = "thinking";
+  const streamText = document.createElement("span");
+  streamText.className = "live-thinking-stream-text";
+  stream.append(streamLabel, streamText);
+  live.append(header, stream);
+  stepsPanel.appendChild(live);
+  liveIterationEl = live;
+  liveThinkingStreamEl = stream;
+  liveThinkingTextEl = streamText;
+}
+
+function renderUnifiedTimeline(trackId: string, turns: AgentTurnInfo[]): void {
+  if (turns.length === 0) {
+    timelineIterations.innerHTML = '<div class="timeline-empty">No activity recorded yet. The agent will appear here once it starts working.</div>';
+    return;
+  }
+
+  const byIter = new Map<number, AgentTurnInfo[]>();
+  for (const t of turns) {
+    if (!byIter.has(t.iteration)) byIter.set(t.iteration, []);
+    byIter.get(t.iteration)!.push(t);
+  }
+
+  const prevScrollTop = stepsPanel.scrollTop;
+  const wasAtBottom = stepsPanel.scrollHeight - stepsPanel.scrollTop - stepsPanel.clientHeight < 80;
+
+  // Remove old content but keep live iteration if present
+  const liveEl = liveIterationEl;
+  timelineIterations.innerHTML = "";
+
+  for (const [iter, iterTurns] of [...byIter.entries()].sort(([a], [b]) => a - b)) {
+    const iterToolCount = iterTurns.reduce((s, t) => s + t.toolCalls.length, 0);
+    const lastTurn = iterTurns.at(-1);
+    const timeStr = lastTurn?.completedAt ? formatRelativeTime(lastTurn.completedAt) : "in progress";
+
+    const iterEl = document.createElement("div");
+    iterEl.className = "activity-iteration";
+
+    const header = document.createElement("div");
+    header.className = "iteration-header";
+    header.innerHTML = `
+      <span class="iteration-chevron"></span>
+      <span class="iteration-label">Iter ${iter}</span>
+      <span class="iteration-meta">${iterToolCount} tool${iterToolCount === 1 ? "" : "s"} · ${timeStr}</span>
+    `;
+
+    const body = document.createElement("div");
+    body.className = "iteration-body";
+
+    header.addEventListener("click", () => {
+      header.classList.toggle("collapsed");
+      body.classList.toggle("hidden");
+    });
+
+    for (const turn of iterTurns) {
+      // Thinking block
+      if (turn.thinkingText) {
+        const preview = turn.thinkingText.slice(0, 120);
+        const hasMore = turn.thinkingText.length > 120;
+
+        const thinkRow = document.createElement("div");
+        thinkRow.className = "thinking-row";
+        thinkRow.innerHTML = `
+          <span class="thinking-toggle-chevron">▸</span>
+          <span class="thinking-label-sm">thinking</span>
+          <span class="thinking-preview-text">${escHtml(preview)}${hasMore ? "…" : ""}</span>
+          ${hasMore ? `<span class="thinking-char-count">${turn.thinkingText.length} chars</span>` : ""}
+        `;
+
+        const thinkExpanded = document.createElement("div");
+        thinkExpanded.className = "thinking-expanded hidden";
+        thinkExpanded.textContent = turn.thinkingText;
+
+        thinkRow.addEventListener("click", () => {
+          const isExpanded = !thinkExpanded.classList.contains("hidden");
+          thinkExpanded.classList.toggle("hidden");
+          const chevron = thinkRow.querySelector<HTMLElement>(".thinking-toggle-chevron");
+          if (chevron) chevron.textContent = isExpanded ? "▸" : "▾";
+        });
+
+        body.append(thinkRow, thinkExpanded);
+      }
+
+      // Tool calls
+      for (const tc of turn.toolCalls) {
+        const summary = summarizeToolInput(tc.toolName, tc.toolInput);
+        const badgeClass = toolBadgeClass(tc.toolName);
+        const outcome = tc.outcome === "pending" ? "⋯" : tc.outcome === "ok" ? "✓" : "✗";
+        const outcomeClass = tc.outcome === "pending" ? "pending" : tc.outcome === "ok" ? "ok" : "error";
+
+        const row = document.createElement("div");
+        row.className = "tool-row";
+        row.innerHTML = `
+          <span class="tool-badge ${badgeClass}">${escHtml(tc.toolName)}</span>
+          <span class="tool-summary">${escHtml(summary)}</span>
+          <span class="tool-duration">${tc.elapsedMs > 0 ? fmtMs(tc.elapsedMs) : ""}</span>
+          <span class="tool-outcome ${outcomeClass}">${outcome}</span>
+        `;
+
+        const detail = document.createElement("div");
+        detail.className = "tool-detail";
+        detail.innerHTML = `
+          <div class="tool-detail-section">
+            <div class="tool-detail-label">Input</div>
+            <div class="tool-detail-code">${escHtml(tc.toolInput)}</div>
+          </div>
+          ${tc.toolOutput ? `<div class="tool-detail-section">
+            <div class="tool-detail-label">Output</div>
+            <div class="tool-detail-code">${escHtml(tc.toolOutput.slice(0, 4096))}</div>
+          </div>` : ""}
+        `;
+
+        row.addEventListener("click", () => row.classList.toggle("expanded"));
+        body.append(row, detail);
+      }
+
+      // Text output
+      if (turn.textOutput) {
+        const textEl = document.createElement("div");
+        textEl.className = "turn-text-output";
+        textEl.textContent = turn.textOutput;
+        body.appendChild(textEl);
+      }
+    }
+
+    iterEl.append(header, body);
+    timelineIterations.appendChild(iterEl);
+  }
+
+  // Re-attach live iteration if it existed
+  if (liveEl) stepsPanel.appendChild(liveEl);
+
+  if (wasAtBottom) {
+    stepsPanel.scrollTop = stepsPanel.scrollHeight;
+  } else {
+    stepsPanel.scrollTop = prevScrollTop;
   }
 }
 
-function startActivityPolling(trackId: string): void {
-  stopActivityPolling();
-  activityPollInterval = setInterval(() => {
-    void loadAgentActivity(trackId);
-  }, 2000);
+// ── Files panel ───────────────────────────────────────────────────────────────
+
+async function loadTrackFiles(trackId: string): Promise<void> {
+  if (!activeSessionId) return;
+  fileList.innerHTML = '<div class="file-empty">Loading files…</div>';
+  fileViewer.classList.add("hidden");
+  try {
+    const files = await api.listTrackFiles(activeSessionId, trackId);
+    renderFileList(files);
+  } catch {
+    fileList.innerHTML = '<div class="file-empty">Could not load files.</div>';
+  }
 }
 
-async function loadAgentActivity(trackId: string): Promise<void> {
-  if (!activeSessionId) return;
-  activityTrackId = trackId;
-  const turns = await api.getAgentActivity(activeSessionId, trackId);
-  renderActivityPanel(trackId, turns);
-  renderReasoningPanel(trackId, turns);
+function renderFileList(files: TrackFileInfo[]): void {
+  fileList.innerHTML = "";
+  if (files.length === 0) {
+    fileList.innerHTML = '<div class="file-empty">No files created yet.</div>';
+    return;
+  }
+
+  const groups = new Map<string, TrackFileInfo[]>();
+  for (const f of files) {
+    const parts = f.relativePath.split("/");
+    const dir = parts.slice(0, -1).join("/") || ".";
+    if (!groups.has(dir)) groups.set(dir, []);
+    groups.get(dir)!.push(f);
+  }
+
+  for (const [dir, groupFiles] of groups) {
+    const groupEl = document.createElement("div");
+    groupEl.className = "file-group";
+    const headerEl = document.createElement("div");
+    headerEl.className = "file-group-header";
+    headerEl.textContent = dir;
+    groupEl.appendChild(headerEl);
+
+    for (const f of groupFiles) {
+      const name = f.relativePath.split("/").at(-1) ?? f.relativePath;
+      const sizeStr = f.size < 1024 ? `${f.size} B` : `${(f.size / 1024).toFixed(1)} KB`;
+      const row = document.createElement("div");
+      row.className = "file-row";
+      row.innerHTML = `
+        <span class="file-name">${escHtml(name)}</span>
+        <span class="file-meta">${sizeStr} · ${formatRelativeTime(f.mtime)}</span>
+        <button class="file-view-btn btn-sm">View</button>
+      `;
+      row.querySelector(".file-view-btn")?.addEventListener("click", () => void openFileView(f));
+      groupEl.appendChild(row);
+    }
+    fileList.appendChild(groupEl);
+  }
+}
+
+async function openFileView(file: TrackFileInfo): Promise<void> {
+  const content = await api.readFile(file.path);
+  if (content === null) return;
+  fileViewer.classList.remove("hidden");
+  fileViewer.innerHTML = `
+    <div class="file-viewer-header">
+      <span class="file-viewer-path">${escHtml(file.relativePath)}</span>
+      <button class="btn-sm file-viewer-close">Close</button>
+    </div>
+    <pre class="file-viewer-content">${escHtml(content)}</pre>
+  `;
+  fileViewer.querySelector(".file-viewer-close")?.addEventListener("click", () => {
+    fileViewer.classList.add("hidden");
+  });
+  fileViewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function agentRole(trackId: string): string {
@@ -1798,177 +1933,6 @@ function fmtNum(n: number): string {
   return n.toLocaleString();
 }
 
-function renderActivityPanel(trackId: string, turns: AgentTurnInfo[]): void {
-  const role = agentRole(trackId);
-  activityAgentBadge.textContent = role;
-  activityAgentBadge.className = `agent-role-badge ${role}`;
-  activityAgentName.textContent = trackId;
-
-  const totalTools = turns.reduce((s, t) => s + t.toolCalls.length, 0);
-  const totalCostUsd = turns.reduce((s, t) => {
-    // rough estimate: $3/Mtok in, $15/Mtok out
-    return s + (t.inputTokens * 3 + t.outputTokens * 15) / 1_000_000;
-  }, 0);
-  activityStats.textContent = turns.length > 0
-    ? `${turns.length} turn${turns.length === 1 ? "" : "s"} · ${totalTools} tool calls · ~$${totalCostUsd.toFixed(3)}`
-    : "";
-
-  if (turns.length === 0) {
-    activityEmpty.style.display = "";
-    activityIterations.innerHTML = "";
-    return;
-  }
-  activityEmpty.style.display = "none";
-
-  // Group turns by iteration
-  const byIter = new Map<number, AgentTurnInfo[]>();
-  for (const t of turns) {
-    if (!byIter.has(t.iteration)) byIter.set(t.iteration, []);
-    byIter.get(t.iteration)!.push(t);
-  }
-
-  const scrollTop = activityIterations.scrollTop;
-  activityIterations.innerHTML = "";
-
-  for (const [iter, iterTurns] of [...byIter.entries()].sort(([a], [b]) => a - b)) {
-    const iterToolCount = iterTurns.reduce((s, t) => s + t.toolCalls.length, 0);
-    const iterIn = iterTurns.reduce((s, t) => s + t.inputTokens, 0);
-    const iterOut = iterTurns.reduce((s, t) => s + t.outputTokens, 0);
-
-    const iterEl = document.createElement("div");
-    iterEl.className = "activity-iteration";
-
-    const header = document.createElement("div");
-    header.className = "iteration-header";
-    header.innerHTML = `
-      <span class="iteration-chevron"></span>
-      <span class="iteration-label">Iteration ${iter}</span>
-      <span class="iteration-meta">${iterTurns.length} turn${iterTurns.length === 1 ? "" : "s"} · ${iterToolCount} tools · ${fmtNum(iterIn + iterOut)} tok</span>
-    `;
-
-    const body = document.createElement("div");
-    body.className = "iteration-body";
-
-    header.addEventListener("click", () => {
-      header.classList.toggle("collapsed");
-      body.classList.toggle("hidden");
-    });
-
-    for (const turn of iterTurns) {
-      const turnEl = document.createElement("div");
-      turnEl.className = "activity-turn";
-      turnEl.innerHTML = `<div class="turn-header">Turn ${turn.turnIndex} · ${fmtNum(turn.inputTokens)} in · ${fmtNum(turn.outputTokens)} out${turn.cacheReadTokens > 0 ? ` · ${fmtNum(turn.cacheReadTokens)} cache` : ""}</div>`;
-
-      for (const tc of turn.toolCalls) {
-        const summary = summarizeToolInput(tc.toolName, tc.toolInput);
-        const badgeClass = toolBadgeClass(tc.toolName);
-        const outcome = tc.outcome === "pending" ? "…" : tc.outcome === "ok" ? "✓" : "✗";
-        const outcomeClass = tc.outcome === "pending" ? "pending" : tc.outcome === "ok" ? "ok" : "error";
-
-        const row = document.createElement("div");
-        row.className = "tool-row";
-        row.innerHTML = `
-          <span class="tool-badge ${badgeClass}">${tc.toolName}</span>
-          <span class="tool-summary">${summary}</span>
-          <span class="tool-duration">${tc.elapsedMs > 0 ? fmtMs(tc.elapsedMs) : ""}</span>
-          <span class="tool-outcome ${outcomeClass}">${outcome}</span>
-        `;
-
-        const detail = document.createElement("div");
-        detail.className = "tool-detail";
-        detail.innerHTML = `
-          <div class="tool-detail-section">
-            <div class="tool-detail-label">Input</div>
-            <div class="tool-detail-code">${escHtml(tc.toolInput)}</div>
-          </div>
-          ${tc.toolOutput ? `<div class="tool-detail-section">
-            <div class="tool-detail-label">Output</div>
-            <div class="tool-detail-code">${escHtml(tc.toolOutput.slice(0, 4096))}</div>
-          </div>` : ""}
-        `;
-
-        row.addEventListener("click", () => {
-          row.classList.toggle("expanded");
-        });
-
-        turnEl.appendChild(row);
-        turnEl.appendChild(detail);
-      }
-
-      body.appendChild(turnEl);
-    }
-
-    iterEl.appendChild(header);
-    iterEl.appendChild(body);
-    activityIterations.appendChild(iterEl);
-  }
-
-  activityIterations.scrollTop = scrollTop;
-}
-
-function renderReasoningPanel(trackId: string, turns: AgentTurnInfo[]): void {
-  const role = agentRole(trackId);
-  reasoningAgentBadge.textContent = role;
-  reasoningAgentBadge.className = `agent-role-badge ${role}`;
-  reasoningAgentName.textContent = trackId;
-
-  const totalIn = turns.reduce((s, t) => s + t.inputTokens, 0);
-  const totalOut = turns.reduce((s, t) => s + t.outputTokens, 0);
-  const totalThinking = turns.reduce((s, t) => s + (t.thinkingText.length > 0 ? Math.round(t.thinkingText.length / 4) : 0), 0);
-  const totalCache = turns.reduce((s, t) => s + t.cacheReadTokens, 0);
-
-  tokenTotals.innerHTML = turns.length > 0 ? `
-    <span><strong>${fmtNum(totalIn)}</strong> in</span>
-    <span><strong>${fmtNum(totalOut)}</strong> out</span>
-    ${totalThinking > 0 ? `<span><strong>~${fmtNum(totalThinking)}</strong> thinking</span>` : ""}
-    ${totalCache > 0 ? `<span><strong>${fmtNum(totalCache)}</strong> cache hits</span>` : ""}
-  ` : "";
-
-  if (turns.length === 0) {
-    reasoningEmpty.style.display = "";
-    reasoningTurns.innerHTML = "";
-    return;
-  }
-  reasoningEmpty.style.display = "none";
-
-  const scrollTop = reasoningTurns.scrollTop;
-  reasoningTurns.innerHTML = "";
-
-  for (const turn of turns) {
-    if (!turn.thinkingText && !turn.textOutput) continue;
-
-    const turnEl = document.createElement("div");
-    turnEl.className = "reasoning-turn";
-
-    const thinkEst = turn.thinkingText.length > 0 ? Math.round(turn.thinkingText.length / 4) : 0;
-    turnEl.innerHTML = `
-      <div class="reasoning-turn-header">
-        <span class="reasoning-turn-label">Iter ${turn.iteration} · Turn ${turn.turnIndex}</span>
-        <div class="reasoning-turn-tokens">
-          <span class="tok-chip">${fmtNum(turn.inputTokens)} in</span>
-          <span class="tok-chip">${fmtNum(turn.outputTokens)} out</span>
-          ${thinkEst > 0 ? `<span class="tok-chip thinking">~${fmtNum(thinkEst)} thinking</span>` : ""}
-          ${turn.cacheReadTokens > 0 ? `<span class="tok-chip cache">${fmtNum(turn.cacheReadTokens)} cache</span>` : ""}
-        </div>
-      </div>
-      ${turn.thinkingText ? `
-        <div class="thinking-block">
-          <div class="block-label">Thinking</div>
-          <div class="block-text">${escHtml(turn.thinkingText)}</div>
-        </div>` : ""}
-      ${turn.textOutput ? `
-        <div class="output-block">
-          <div class="block-label">Output</div>
-          <div class="block-text">${escHtml(turn.textOutput)}</div>
-        </div>` : ""}
-    `;
-
-    reasoningTurns.appendChild(turnEl);
-  }
-
-  reasoningTurns.scrollTop = scrollTop;
-}
-
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -1983,10 +1947,6 @@ api.onResearchLog((trackId: string, text: string) => {
 
 api.onRuntimeEvent((event: RuntimeEvent) => {
   applyRuntimeEvent(event);
-
-  if (activeTrackId === "orchestrator" && event.scope === "session") {
-    activeTitle.textContent = `orchestrator · ${event.stage ?? sessionStage}`;
-  }
 });
 
 // Add manual API limit test for debugging
@@ -2006,21 +1966,23 @@ api.onRuntimeEvent((event: RuntimeEvent) => {
 };
 
 api.onAgentThinking((event: AgentThinkingEvent) => {
-  if (event.trackId !== activityTrackId) return;
-  if (activeView !== "reasoning") return;
-  liveThinking.classList.remove("hidden");
-  liveThinkingText.textContent = (liveThinkingText.textContent ?? "") + event.thinking;
-  liveThinkingText.scrollTop = liveThinkingText.scrollHeight;
+  if (event.trackId !== selectedTrackId) return;
+  if (subView !== "steps") return;
+  ensureLiveIteration();
+  if (liveThinkingStreamEl) liveThinkingStreamEl.classList.remove("hidden");
+  if (liveThinkingTextEl) {
+    liveThinkingTextEl.textContent = (liveThinkingTextEl.textContent ?? "") + event.thinking;
+    liveThinkingTextEl.scrollTop = liveThinkingTextEl.scrollHeight;
+  }
 });
 
 api.onAgentTurn((event: AgentTurnEvent) => {
-  // Clear live thinking when a turn completes
-  if (event.trackId === activityTrackId) {
-    liveThinkingText.textContent = "";
-    liveThinking.classList.add("hidden");
-    if (activeView === "activity" || activeView === "reasoning") {
-      void loadAgentActivity(event.trackId);
-    }
+  accumulateTokens(event.turn);
+  clearLiveIteration();
+  if (event.trackId === selectedTrackId && subView === "steps" && activeSessionId) {
+    void api.getAgentActivity(activeSessionId, event.trackId).then((turns) => {
+      renderUnifiedTimeline(event.trackId, turns);
+    });
   }
 });
 
@@ -2037,10 +1999,9 @@ api.onResearchError((err: string) => {
   applySessionActionButtons("failed");
   sessionStage = "Failed";
   sessionHeadlineText = "Research session failed";
-  sessionDetailText = err;
   sessionLastUpdated = new Date().toISOString();
   renderSessionSummary();
-  renderActionCenter();
+  renderActionBanner();
   alert(`Research error: ${err}`);
 });
 
@@ -2051,23 +2012,19 @@ api.onResearchError((err: string) => {
 }).__bugBountyTest = {
   simulateStoppedSessionUi: () => {
     document.body.classList.add("session-live");
-    progressView.style.display = "flex";
+    progressView.style.display = "";
     sessionsView.style.display = "none";
     welcome.style.display = "none";
-    activeTrackId = "orchestrator";
     activeSessionStatus = "crashed";
     sessionStage = "Stopped";
     sessionHeadlineText = "Research session stopped";
-    sessionDetailText = "Stopped by user. Resume to continue from the saved session state.";
     sessionLastUpdated = new Date().toISOString();
     currentStates = [];
     pendingInstall = null;
     applySessionActionButtons("crashed");
-    renderTracks(currentStates);
+    renderTrackSidebar();
     renderSessionSummary();
-    renderOverviewTrackGrid();
-    renderTracksGrid();
-    renderActionCenter();
-    activeStatusDot.className = "status-dot blocked";
+    renderTracksOverview();
+    renderActionBanner();
   },
 };

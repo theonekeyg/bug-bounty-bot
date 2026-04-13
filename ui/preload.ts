@@ -20,6 +20,13 @@ export interface StoredEvent {
   createdAt: string;
 }
 
+export interface TrackFileInfo {
+  path: string;
+  relativePath: string;
+  size: number;
+  mtime: string;
+}
+
 export interface BugBountyAPI {
   // Session management
   listSessions: () => Promise<SessionInfo[]>;
@@ -45,6 +52,7 @@ export interface BugBountyAPI {
 
   // Activity
   getAgentActivity: (sessionId: string, trackId: string) => Promise<AgentTurnInfo[]>;
+  listTrackFiles: (sessionId: string, trackId: string) => Promise<TrackFileInfo[]>;
   getProviderStatuses: () => Promise<ProviderStatus[]>;
   getProviderStatus: (provider: Provider) => Promise<ProviderStatus>;
   testProviderCredential: (
@@ -103,6 +111,9 @@ contextBridge.exposeInMainWorld("bugBounty", {
 
   getAgentActivity: (sessionId: string, trackId: string) =>
     ipcRenderer.invoke("get-agent-activity", sessionId, trackId),
+
+  listTrackFiles: (sessionId: string, trackId: string) =>
+    ipcRenderer.invoke("list-track-files", sessionId, trackId),
   getProviderStatuses: () => ipcRenderer.invoke("get-provider-statuses"),
   getProviderStatus: (provider: Provider) => ipcRenderer.invoke("get-provider-status", provider),
   testProviderCredential: (provider: Provider, source: CredentialSource, secret: string | null) =>

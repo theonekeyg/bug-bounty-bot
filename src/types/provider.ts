@@ -134,3 +134,19 @@ export function getProviderLabel(provider: Provider): string {
 export function getCredentialSourceLabel(source: CredentialSource): string {
   return CREDENTIAL_SOURCE_LABELS[source];
 }
+
+// ── Thinking / reasoning configuration per model ──────────────────────────────
+
+export type ThinkingMode =
+  | { type: "adaptive" }                         // Claude Opus 4.6+
+  | { type: "enabled"; budgetTokens: number }    // Claude Sonnet (fixed budget)
+  | { type: "openrouter" }                       // OpenRouter models: use enable_thinking param + parse response
+  | null;                                         // Model does not support extended thinking
+
+/** Returns the appropriate thinking configuration for a model, or null if unsupported. */
+export function getModelThinking(model: SupportedModel): ThinkingMode {
+  if (model === "claude-opus-4-6")   return { type: "adaptive" };
+  if (model === "claude-sonnet-4-6") return { type: "enabled", budgetTokens: 8000 };
+  if (model === "qwen/qwen-plus")    return { type: "openrouter" };
+  return null;
+}

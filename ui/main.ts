@@ -5,7 +5,7 @@
 
 import { app, BrowserWindow, ipcMain, dialog, safeStorage } from "electron";
 import { join } from "path";
-import { readFile, readdir, writeFile, mkdir } from "fs/promises";
+import { readFile, readdir, writeFile, mkdir, stat } from "fs/promises";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -503,6 +503,35 @@ ipcMain.handle("get-pending-installs", async (_event, sessionId?: string) => {
 /** Get full agent activity (turns + tool calls) for a track. */
 ipcMain.handle("get-agent-activity", async (_event, sessionId: string, trackId: string) => {
   return getAgentActivity(sessionId, trackId);
+});
+
+/** List files created by a track in its state dir and the session output dir. */
+ipcMain.handle("list-track-files", async (_event, sessionId: string, trackId: string) => {
+  const paths = sessionPaths(sessionId);
+  const stateBase = paths.stateDir();
+  const outputBase = paths.outputDir();
+  type TrackFileInfo = { path: string; relativePath: string; size: number; mtime: string };
+  const results: TrackFileInfo[] = [];
+
+  async function scanDir(dir: string, relBase: string): Promise<void> {
+    if (!existsSync(dir)) return;
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      const rel = join(relBase, entry.name);
+      if (entry.isDirectory()) {
+        await scanDir(full, rel);
+      } else {
+        const s = await stat(full);
+        results.push({ path: full, relativePath: rel, size: s.size, mtime: s.mtime.toISOString() });
+      }
+    }
+  }
+
+  await scanDir(join(stateBase, "research", trackId), join("state", "research", trackId));
+  await scanDir(outputBase, "output");
+
+  return results.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime());
 });
 
 /** Approve or reject a pending install. */

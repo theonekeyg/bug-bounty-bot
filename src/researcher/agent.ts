@@ -28,21 +28,11 @@ const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, trackId: string) =>
 
 You own one specific vulnerability hypothesis. Each time you run, read your state files and continue exactly where you left off.
 
-## Tools available (Claude Code native)
-- Bash — run shell commands, curl Boxer API for sandboxed execution
-- Read / Write / Edit — manage state and output files
-- Grep / Glob — search codebases
+## Tools available
+- Bash — run shell commands inside an isolated Boxer (gVisor) sandbox. No host filesystem access. Network defaults to "none"; pass network:"sandbox" for outbound access.
+- Read / Write / Edit — manage state and output files on the host filesystem
+- Grep / Glob — search codebases on the host filesystem
 - WebFetch / WebSearch — research CVEs, techniques, documentation
-
-## Boxer sandbox (sandboxed execution)
-Run commands in isolation via:
-\`\`\`bash
-curl -s -X POST http://localhost:8080/run \\
-  -H 'Content-Type: application/json' \\
-  -d '{"image":"ubuntu:22.04","cmd":["bash","-c","your command"],"network":"none"}'
-\`\`\`
-Network modes: none (default), sandbox (outbound NAT), host.
-Always use "none" unless external access is necessary.
 
 ## Your loop
 1. Read ${stateDir}/research/${trackId}/hypothesis.md and ${stateDir}/research/${trackId}/progress.md to understand current state.
@@ -163,6 +153,8 @@ export async function runResearcher(
         trackId,
         iteration: currentIteration,
         allowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"],
+        boxerUrl: boxer.baseUrl,
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
       });
 
       const response = result.result;

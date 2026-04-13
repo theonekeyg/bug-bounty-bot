@@ -84,6 +84,7 @@ All agent-executed shell commands run inside Boxer sandboxes (gVisor isolation).
 - Files are uploaded before execution and captured from `/output/` after.
 - Boxer must be running locally before the loop starts (setup documented in `docs/setup.md`).
 - The TypeScript SDK (`boxer-sdk`) is the only interface — no raw HTTP calls.
+- **Boxer can be extended**: if a research workflow needs new capabilities (additional base images, custom network policies, snapshot/restore, file upload to workspace), add them to `src/sandbox/boxer.ts` and `src/sandbox/types.ts`. The Boxer REST API is the source of truth; the TypeScript client is a thin wrapper.
 
 ---
 

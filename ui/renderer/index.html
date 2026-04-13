@@ -1069,426 +1069,532 @@
         font-weight: 600;
         letter-spacing: -0.02em;
       }
-      .runtime-hero {
-        position: relative;
-        overflow: hidden;
-        padding: 24px 24px 26px;
-        border-radius: 28px;
-        border: 1px solid rgba(255,255,255,0.08);
-        background:
-          linear-gradient(135deg, rgba(17, 24, 39, 0.98), rgba(12, 14, 20, 0.94)),
-          linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
-        box-shadow:
-          0 18px 48px rgba(0,0,0,0.34),
-          inset 0 1px 0 rgba(255,255,255,0.05);
-      }
-      .runtime-hero::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background:
-          radial-gradient(circle at 85% 20%, rgba(56, 189, 248, 0.18), transparent 24%),
-          radial-gradient(circle at 18% 18%, rgba(251, 191, 36, 0.12), transparent 16%);
-        pointer-events: none;
-      }
-      .runtime-hero-top {
-        position: relative;
-        z-index: 1;
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 18px;
-        margin-bottom: 18px;
-      }
-      .runtime-badges {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-      }
+      /* ── Session page pills ── */
       .stage-pill,
       .health-pill,
       .meta-pill {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
+        gap: 6px;
+        padding: 5px 10px;
         border-radius: 999px;
         border: 1px solid rgba(255,255,255,0.08);
         background: rgba(255,255,255,0.04);
         font-size: 11px;
         font-weight: 700;
-        letter-spacing: 0.1em;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
+        white-space: nowrap;
       }
       .stage-pill {
         background: rgba(59, 130, 246, 0.12);
         border-color: rgba(96, 165, 250, 0.28);
+        color: #bfdbfe;
       }
-      .health-pill {
-        color: #b9d7ff;
-      }
-      .health-pill.warning {
-        color: #fde68a;
-        background: rgba(234, 179, 8, 0.1);
-      }
-      .health-pill.error {
-        color: #fca5a5;
-        background: rgba(239, 68, 68, 0.1);
-      }
-      .runtime-hero-title {
-        position: relative;
-        z-index: 1;
-        max-width: 980px;
-        font-size: 34px;
-        line-height: 1.05;
-        letter-spacing: -0.04em;
-        margin-bottom: 8px;
-      }
-      .runtime-hero-detail {
-        position: relative;
-        z-index: 1;
-        max-width: 880px;
-        color: #98a3b7;
-        font-size: 15px;
-        line-height: 1.6;
-      }
-      .runtime-meta-grid {
-        position: relative;
-        z-index: 1;
-        margin-top: 22px;
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 12px;
-      }
-      .runtime-metric {
-        padding: 14px 16px;
-        border-radius: 18px;
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.06);
-      }
-      .runtime-metric-label {
-        display: block;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: #6f7687;
-        margin-bottom: 8px;
-      }
-      .runtime-metric strong {
-        font-size: 15px;
-        color: var(--text);
-      }
-      .stage-rail {
-        display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 12px;
-      }
-      .stage-step {
-        padding: 16px;
-        border-radius: 20px;
-        border: 1px solid rgba(255,255,255,0.06);
-        background: rgba(255,255,255,0.03);
-      }
-      .stage-step-status {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: #6f7687;
-        margin-bottom: 10px;
-      }
-      .stage-step-status::before {
-        content: "";
-        width: 9px;
-        height: 9px;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.14);
-      }
-      .stage-step h3 {
-        font-size: 14px;
-        margin-bottom: 6px;
-      }
-      .stage-step p {
-        font-size: 12px;
-        color: #8c96a8;
-        line-height: 1.5;
-      }
-      .stage-step.complete {
-        border-color: rgba(34, 197, 94, 0.24);
-        background: rgba(34, 197, 94, 0.08);
-      }
-      .stage-step.complete .stage-step-status::before {
-        background: var(--green);
-      }
-      .stage-step.active {
-        border-color: rgba(96, 165, 250, 0.4);
-        background: rgba(59, 130, 246, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
-      }
-      .stage-step.active .stage-step-status,
-      .stage-step.active h3 {
-        color: #dbeafe;
-      }
-      .stage-step.active .stage-step-status::before {
-        background: var(--blue);
-      }
-      .stage-step.pending {
-        opacity: 0.64;
-      }
-      .dashboard-tabs {
+      .health-pill { color: #b9d7ff; }
+      .health-pill.warning { color: #fde68a; background: rgba(234,179,8,0.1); }
+      .health-pill.error   { color: #fca5a5; background: rgba(239,68,68,0.1); }
+      .cost-pill { color: #d1fae5; background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.2); }
+
+      /* ── Session header ── */
+      .session-header {
         display: flex;
+        align-items: center;
         gap: 10px;
+        padding: 10px 18px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        flex-shrink: 0;
+        background: rgba(9,10,13,0.82);
+        backdrop-filter: blur(18px);
       }
-      .view-tab {
-        padding: 10px 14px;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.06);
+      .session-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
-      .view-tab.active {
-        background: linear-gradient(180deg, rgba(96, 165, 250, 0.18), rgba(59, 130, 246, 0.08));
-        border-color: rgba(96, 165, 250, 0.34);
+      .session-pills {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-shrink: 0;
       }
-      .dashboard-panels {
+      .session-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-shrink: 0;
+      }
+
+      /* ── Session layout: sidebar + panel ── */
+      #progress-view {
+        display: flex;
+        flex-direction: column;
         flex: 1;
         min-height: 0;
+        overflow: hidden;
       }
-      .dashboard-panel {
-        height: 100%;
+      .session-layout {
+        display: flex;
+        flex: 1;
         min-height: 0;
+        overflow: hidden;
       }
-      .overview-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
-        gap: 18px;
-        min-height: 0;
+
+      /* ── Track sidebar ── */
+      .track-sidebar {
+        width: 220px;
+        flex-shrink: 0;
+        border-right: 1px solid rgba(255,255,255,0.06);
+        background: rgba(9,10,13,0.7);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
-      .panel-stack {
-        display: grid;
-        gap: 18px;
+      .sidebar-track-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
       }
-      .dashboard-card {
-        border-radius: 24px;
-        border: 1px solid rgba(255,255,255,0.07);
-        background:
-          linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015)),
-          rgba(15, 17, 22, 0.92);
-        box-shadow: 0 14px 34px rgba(0,0,0,0.22);
+      .sidebar-track-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        padding: 10px 10px;
+        border-radius: 10px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: background 0.1s, border-color 0.1s;
+        margin-bottom: 2px;
       }
-      .dashboard-card-header {
+      .sidebar-track-item:hover {
+        background: rgba(255,255,255,0.04);
+      }
+      .sidebar-track-item.active {
+        background: rgba(59,130,246,0.1);
+        border-color: rgba(96,165,250,0.28);
+      }
+      .sidebar-track-item .status-dot {
+        margin-top: 3px;
+        flex-shrink: 0;
+      }
+      .sidebar-track-body {
+        min-width: 0;
+        flex: 1;
+      }
+      .sidebar-track-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-bottom: 2px;
+      }
+      .sidebar-track-stage {
+        font-size: 11px;
+        color: var(--text-soft);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-bottom: 3px;
+        line-height: 1.4;
+      }
+      .sidebar-track-footer {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 18px 20px 0;
+        gap: 6px;
       }
-      .dashboard-card-header h3 {
-        font-size: 16px;
-        letter-spacing: -0.02em;
-      }
-      .dashboard-card-subtle {
-        color: #7f889b;
-        font-size: 12px;
-      }
-      .dashboard-card-body {
-        padding: 18px 20px 20px;
-      }
-      .milestone-list,
-      .debug-feed {
-        display: grid;
-        gap: 14px;
-      }
-      .milestone-row {
-        display: grid;
-        grid-template-columns: 92px 1fr;
-        gap: 14px;
-        align-items: flex-start;
-      }
-      .milestone-time {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: #667084;
-        padding-top: 3px;
-      }
-      .milestone-content {
-        min-width: 0;
-        padding-bottom: 14px;
-        border-bottom: 1px solid rgba(255,255,255,0.04);
-      }
-      .milestone-chip {
-        display: inline-flex;
-        align-items: center;
-        margin-bottom: 8px;
-        padding: 4px 9px;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.05);
+      .sidebar-track-status {
         font-size: 10px;
-        letter-spacing: 0.1em;
+        font-weight: 700;
+        letter-spacing: 0.07em;
         text-transform: uppercase;
-        color: #8e98aa;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.06);
+        color: var(--text-soft);
       }
-      .milestone-title {
-        font-size: 14px;
-        color: #eef2ff;
-        margin-bottom: 5px;
+      .sidebar-track-status.running  { background: rgba(59,130,246,0.14); color: #93c5fd; }
+      .sidebar-track-status.found    { background: rgba(34,197,94,0.14);  color: #86efac; }
+      .sidebar-track-status.blocked  { background: rgba(234,179,8,0.12);  color: #fde047; }
+      .sidebar-track-status.disproven{ background: rgba(148,163,184,0.1); color: var(--muted); }
+      .sidebar-track-status.awaiting_permission { background: rgba(239,68,68,0.14); color: #f87171; }
+      .sidebar-track-tokens {
+        font-size: 10px;
+        color: var(--muted);
+        font-family: var(--font-mono);
       }
-      .milestone-detail {
-        font-size: 12px;
-        line-height: 1.55;
-        color: #8d97aa;
+      .sidebar-divider {
+        height: 1px;
+        background: rgba(255,255,255,0.05);
+        margin: 6px 4px;
       }
-      .overview-track-grid,
-      .tracks-grid {
+
+      /* ── Timeline panel ── */
+      .timeline-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 0;
+      }
+
+      /* ── Action banner ── */
+      .action-banner {
+        flex-shrink: 0;
+        padding: 10px 18px;
+        background: rgba(239,68,68,0.1);
+        border-bottom: 1px solid rgba(239,68,68,0.22);
+        font-size: 13px;
+        color: #fca5a5;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .action-banner.warning {
+        background: rgba(234,179,8,0.1);
+        border-color: rgba(234,179,8,0.22);
+        color: #fde68a;
+      }
+      .action-banner strong { font-weight: 700; }
+      .action-banner-actions { display: flex; gap: 8px; margin-left: auto; }
+
+      /* ── Tracks overview grid (All Tracks view) ── */
+      .tracks-overview {
+        flex: 1;
+        overflow-y: auto;
+        padding: 18px;
         display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
         gap: 14px;
+        align-content: start;
       }
       .track-overview-card {
         padding: 16px;
-        border-radius: 18px;
-        border: 1px solid rgba(255,255,255,0.06);
-        background: rgba(255,255,255,0.03);
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.07);
+        background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)), rgba(15,17,22,0.9);
+        cursor: pointer;
+        transition: border-color 0.12s, transform 0.12s;
+      }
+      .track-overview-card:hover {
+        border-color: rgba(96,165,250,0.32);
+        transform: translateY(-1px);
       }
       .track-overview-top {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 10px;
+        gap: 10px;
+        margin-bottom: 8px;
       }
       .track-overview-card h4 {
-        font-size: 15px;
+        font-size: 14px;
+        font-weight: 600;
         margin-bottom: 4px;
       }
       .track-overview-card p {
         font-size: 12px;
-        line-height: 1.55;
+        line-height: 1.5;
         color: #8c96a8;
-      }
-      .track-status-pill {
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        border: 1px solid rgba(255,255,255,0.08);
-        background: rgba(255,255,255,0.04);
-      }
-      .track-status-pill.running {
-        color: #bfdbfe;
-        background: rgba(59, 130, 246, 0.12);
-      }
-      .track-status-pill.found {
-        color: #bbf7d0;
-        background: rgba(34, 197, 94, 0.12);
-      }
-      .track-status-pill.blocked {
-        color: #fde68a;
-        background: rgba(234, 179, 8, 0.12);
-      }
-      .track-status-pill.disproven {
-        color: #d1d5db;
-        background: rgba(148, 163, 184, 0.12);
-      }
-      .track-status-pill.awaiting_permission {
-        color: #fecaca;
-        background: rgba(239, 68, 68, 0.12);
       }
       .track-overview-meta {
         display: flex;
-        gap: 14px;
-        margin-top: 12px;
+        gap: 10px;
+        margin-top: 10px;
         font-size: 11px;
         color: #6f7687;
-      }
-      .action-center-item {
-        padding: 14px 0;
-        border-bottom: 1px solid rgba(255,255,255,0.04);
-      }
-      .action-center-item:last-child {
-        border-bottom: none;
-        padding-bottom: 0;
-      }
-      .action-center-item strong {
-        display: block;
-        margin-bottom: 6px;
-      }
-      .action-center-item p {
-        color: #8b95a7;
-        font-size: 12px;
-        line-height: 1.55;
-      }
-
-      /* API Limit Alert Styling */
-      .api-limit-alert {
-        background: rgba(239, 68, 68, 0.08);
-        border: 1px solid rgba(239, 68, 68, 0.2);
-        border-radius: 16px;
-        padding: 16px;
-      }
-      .api-limit-alert strong {
-        color: #fca5a5;
-        font-size: 14px;
-        margin-bottom: 8px;
-      }
-      .api-limit-alert p {
-        color: #fca5a5;
-        margin-bottom: 12px;
-      }
-      .api-limit-actions {
-        display: flex;
-        gap: 8px;
         flex-wrap: wrap;
       }
-      .api-limit-btn {
-        background: rgba(239, 68, 68, 0.12);
-        color: #fca5a5;
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        padding: 6px 12px;
-        border-radius: 8px;
-        font-size: 11px;
-        text-decoration: none;
-        cursor: pointer;
-        transition: all 0.2s ease;
+      .track-status-pill {
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        border: 1px solid transparent;
+        flex-shrink: 0;
       }
-      .api-limit-btn:hover {
-        background: rgba(239, 68, 68, 0.2);
-        border-color: rgba(239, 68, 68, 0.5);
-        color: #ffffff;
+      .track-status-pill.running  { color: #bfdbfe; background: rgba(59,130,246,0.12); border-color: rgba(96,165,250,0.2); }
+      .track-status-pill.found    { color: #bbf7d0; background: rgba(34,197,94,0.12);  border-color: rgba(34,197,94,0.2); }
+      .track-status-pill.blocked  { color: #fde68a; background: rgba(234,179,8,0.12);  border-color: rgba(234,179,8,0.2); }
+      .track-status-pill.disproven{ color: #d1d5db; background: rgba(148,163,184,0.1); border-color: rgba(148,163,184,0.15); }
+      .track-status-pill.awaiting_permission { color: #fecaca; background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.2); }
+
+      /* ── Track detail ── */
+      .track-detail {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .track-token-stats {
+        padding: 8px 18px;
+        font-size: 11px;
+        color: var(--text-soft);
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        background: rgba(255,255,255,0.02);
+        flex-shrink: 0;
+        font-family: var(--font-mono);
+      }
+      .track-token-stats span strong { color: var(--text); }
+      .track-token-stats .tok-cost  { color: #d1fae5; font-weight: 700; }
+
+      /* ── Subview tabs ── */
+      .panel-subview-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 8px 18px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        flex-shrink: 0;
+      }
+      .subview-tab {
+        padding: 5px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.06);
+        background: transparent;
+        color: var(--text-soft);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .subview-tab.active {
+        background: rgba(96,165,250,0.14);
+        border-color: rgba(96,165,250,0.32);
+        color: #bfdbfe;
+      }
+
+      /* ── Steps panel (timeline) ── */
+      .subview-panel {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 0;
+      }
+      #steps-panel {
+        display: flex;
+        flex-direction: column;
+      }
+      .timeline-iterations { padding: 12px 0; }
+      .timeline-empty {
+        padding: 48px 24px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      /* ── Thinking row (inline in iteration) ── */
+      .thinking-row {
+        display: flex;
+        align-items: baseline;
+        gap: 7px;
+        padding: 5px 16px 5px 32px;
+        cursor: pointer;
+        border-radius: 6px;
+        margin: 2px 8px;
+        transition: background 0.1s;
+      }
+      .thinking-row:hover { background: rgba(124,58,237,0.07); }
+      .thinking-toggle-chevron {
+        font-size: 10px;
+        color: #a78bfa;
+        flex-shrink: 0;
+        width: 10px;
+      }
+      .thinking-label-sm {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: #a78bfa;
+        flex-shrink: 0;
+      }
+      .thinking-preview-text {
+        font-size: 12px;
+        color: #c4b5fd;
+        font-style: italic;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+      }
+      .thinking-char-count {
+        font-size: 10px;
+        color: var(--muted);
+        flex-shrink: 0;
+        font-family: var(--font-mono);
+      }
+      .thinking-expanded {
+        margin: 0 8px 4px 58px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(124,58,237,0.08);
+        border: 1px solid rgba(124,58,237,0.18);
+        font-size: 12px;
+        line-height: 1.7;
+        color: #c4b5fd;
+        font-style: italic;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 320px;
+        overflow-y: auto;
+      }
+      .turn-text-output {
+        margin: 4px 8px 4px 58px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--text-soft);
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      /* ── Live iteration ── */
+      .live-iteration {
+        margin: 4px 0;
+        border-top: 1px solid rgba(96,165,250,0.18);
+        background: rgba(59,130,246,0.04);
+      }
+      .live-iteration-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #93c5fd;
+      }
+      .live-thinking-stream {
+        padding: 6px 16px 6px 32px;
+        display: flex;
+        gap: 7px;
+        align-items: baseline;
+      }
+      .live-thinking-stream-text {
+        font-size: 12px;
+        color: #c4b5fd;
+        font-style: italic;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 120px;
+        overflow-y: auto;
+      }
+
+      /* ── Files panel ── */
+      #files-panel { padding: 0; }
+      .file-group { margin-bottom: 4px; }
+      .file-group-header {
+        padding: 10px 18px 4px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-family: var(--font-mono);
+      }
+      .file-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 18px;
+        border-radius: 6px;
+        margin: 0 8px;
+        transition: background 0.1s;
+      }
+      .file-row:hover { background: rgba(255,255,255,0.04); }
+      .file-name {
+        font-size: 12px;
+        font-family: var(--font-mono);
+        color: var(--text);
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-meta {
+        font-size: 11px;
+        color: var(--muted);
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      .file-view-btn {
+        padding: 3px 8px;
+        font-size: 11px;
+        flex-shrink: 0;
+      }
+      .file-empty {
+        padding: 48px 24px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .file-viewer {
+        margin: 12px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(0,0,0,0.3);
+        overflow: hidden;
+      }
+      .file-viewer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 14px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
+      }
+      .file-viewer-path {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--text-soft);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-viewer-content {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.6;
+        color: var(--text);
+        white-space: pre-wrap;
+        word-break: break-all;
+        padding: 12px 14px;
+        max-height: 360px;
+        overflow-y: auto;
+        margin: 0;
+      }
+
+      /* ── Debug log panel ── */
+      .debug-log {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 0;
       }
       #progress-log {
         height: 100%;
         padding: 18px 20px 20px;
-        border-radius: 24px;
-        border: 1px solid rgba(255,255,255,0.07);
-        background:
-          linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)),
-          rgba(15, 17, 22, 0.92);
-      }
-      .debug-topline {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 14px;
-      }
-      .debug-topline h3 {
-        font-size: 16px;
-      }
-      .debug-copy {
-        color: #8b95a7;
+        font-family: var(--font-mono);
         font-size: 12px;
-      }
-      @media (max-width: 1280px) {
-        .overview-grid {
-          grid-template-columns: 1fr;
-        }
-        .runtime-meta-grid,
-        .stage-rail {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
+        line-height: 1.6;
+        white-space: pre-wrap;
+        color: var(--text);
       }
     </style>
   </head>
@@ -1645,169 +1751,61 @@
           <p>Fill in the brief and click Start Research to begin.</p>
         </div>
         <div id="progress-view" style="display:none">
-          <div class="progress-header">
+          <!-- Compact session header -->
+          <div class="session-header">
             <button class="back-btn" id="back-to-sessions" type="button">
               <span class="back-btn-chevron" aria-hidden="true"></span>
               Sessions
             </button>
-            <div class="progress-header-title">
-              <div class="status-dot running" id="active-status-dot"></div>
-              <h2 id="active-track-title">—</h2>
+            <span id="active-track-title" class="session-title">—</span>
+            <div class="session-pills">
+              <div class="stage-pill" id="session-stage-pill">Starting</div>
+              <div class="health-pill" id="session-health-pill">Preparing</div>
+              <div class="meta-pill" id="session-elapsed">00:00</div>
+              <div class="meta-pill cost-pill" id="session-cost" style="display:none">—</div>
             </div>
-            <button class="btn-danger" id="stop-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Stop</button>
-            <button class="btn-primary btn-compact" id="resume-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Resume</button>
+            <div class="session-actions">
+              <button class="btn-sm" id="debug-toggle-btn" type="button">Debug</button>
+              <button class="btn-danger" id="stop-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Stop</button>
+              <button class="btn-primary btn-compact" id="resume-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Resume</button>
+            </div>
           </div>
-          <section class="runtime-hero">
-            <div class="runtime-hero-top">
-              <div class="runtime-badges">
-                <div class="stage-pill" id="session-stage-pill">Starting</div>
-                <div class="health-pill" id="session-health-pill">Preparing</div>
-                <div class="meta-pill" id="session-last-activity">No activity yet</div>
-              </div>
-              <div class="dashboard-card-subtle" id="session-updated-at">Session initiated just now</div>
-            </div>
-            <div class="runtime-hero-title" id="session-headline">Preparing session…</div>
-            <div class="runtime-hero-detail" id="session-detail">Live runtime updates will appear here.</div>
-            <div class="runtime-meta-grid">
-              <div class="runtime-metric">
-                <span class="runtime-metric-label">Elapsed</span>
-                <strong id="session-elapsed">00:00</strong>
-              </div>
-              <div class="runtime-metric">
-                <span class="runtime-metric-label">Activity</span>
-                <strong id="session-activity-state">Booting orchestration</strong>
-              </div>
-              <div class="runtime-metric">
-                <span class="runtime-metric-label">Active Tracks</span>
-                <strong id="session-track-count">0 live</strong>
-              </div>
-              <div class="runtime-metric">
-                <span class="runtime-metric-label">Action Center</span>
-                <strong id="session-action-state">No action required</strong>
-              </div>
-            </div>
-          </section>
-          <section class="stage-rail" id="stage-rail">
-            <article class="stage-step pending" data-stage-key="brief">
-              <div class="stage-step-status">Pending</div>
-              <h3>Brief</h3>
-              <p>Load the session brief, model, and environment.</p>
-            </article>
-            <article class="stage-step pending" data-stage-key="surface">
-              <div class="stage-step-status">Pending</div>
-              <h3>Surface</h3>
-              <p>Map the attack surface and frame the first hypotheses.</p>
-            </article>
-            <article class="stage-step pending" data-stage-key="tracks">
-              <div class="stage-step-status">Pending</div>
-              <h3>Tracks</h3>
-              <p>Create and launch focused research tracks.</p>
-            </article>
-            <article class="stage-step pending" data-stage-key="research">
-              <div class="stage-step-status">Pending</div>
-              <h3>Research</h3>
-              <p>Run investigations, commands, and evidence gathering.</p>
-            </article>
-            <article class="stage-step pending" data-stage-key="report">
-              <div class="stage-step-status">Pending</div>
-              <h3>Report</h3>
-              <p>Synthesize findings and prepare the final output.</p>
-            </article>
-          </section>
-          <div class="dashboard-tabs">
-            <button class="view-tab active" id="overview-tab" type="button">Overview</button>
-            <button class="view-tab" id="tracks-tab" type="button">Tracks</button>
-            <button class="view-tab" id="activity-tab" type="button">Activity</button>
-            <button class="view-tab" id="reasoning-tab" type="button">Reasoning</button>
-            <button class="view-tab" id="debug-tab" type="button">Debug</button>
-          </div>
-          <div class="dashboard-panels">
-            <div class="dashboard-panel" id="overview-panel">
-              <div class="overview-grid">
-                <div class="panel-stack">
-                  <section class="dashboard-card">
-                    <div class="dashboard-card-header">
-                      <h3>Mission Overview</h3>
-                      <div class="dashboard-card-subtle" id="overview-subtitle">Live orchestration summary</div>
-                    </div>
-                    <div class="dashboard-card-body">
-                      <div class="milestone-list" id="milestone-list"></div>
-                    </div>
-                  </section>
-                </div>
-                <div class="panel-stack">
-                  <section class="dashboard-card">
-                    <div class="dashboard-card-header">
-                      <h3>Active Tracks</h3>
-                      <div class="dashboard-card-subtle" id="overview-track-caption">No tracks yet</div>
-                    </div>
-                    <div class="dashboard-card-body">
-                      <div class="overview-track-grid" id="overview-track-grid"></div>
-                    </div>
-                  </section>
-                  <section class="dashboard-card">
-                    <div class="dashboard-card-header">
-                      <h3>Action Center</h3>
-                      <div class="dashboard-card-subtle" id="action-center-caption">Watching for blockers</div>
-                    </div>
-                    <div class="dashboard-card-body" id="action-center"></div>
-                  </section>
-                </div>
-              </div>
-            </div>
-            <div class="dashboard-panel hidden" id="tracks-panel">
-              <section class="dashboard-card" style="height:100%">
-                <div class="dashboard-card-header">
-                  <h3>Track Console</h3>
-                  <div class="dashboard-card-subtle" id="tracks-panel-caption">Latest stage and evidence across tracks</div>
-                </div>
-                <div class="dashboard-card-body" style="height:calc(100% - 62px); overflow-y:auto;">
-                  <div class="tracks-grid" id="tracks-grid"></div>
-                </div>
-              </section>
-            </div>
-            <!-- Activity panel -->
-            <div class="dashboard-panel hidden" id="activity-panel">
-              <section class="dashboard-card" style="height:100%">
-                <div class="dashboard-card-header">
-                  <div class="agent-panel-title">
-                    <span class="agent-role-badge" id="activity-agent-badge">—</span>
-                    <h3 id="activity-agent-name">Select a track</h3>
-                  </div>
-                  <div class="agent-panel-stats" id="activity-stats"></div>
-                </div>
-                <div class="dashboard-card-body activity-body" id="activity-body">
-                  <div class="agent-empty" id="activity-empty">Select a track from the sidebar to view its activity.</div>
-                  <div class="activity-iterations" id="activity-iterations"></div>
-                </div>
-              </section>
+
+          <!-- Main session layout -->
+          <div class="session-layout">
+            <!-- Track sidebar -->
+            <div class="track-sidebar">
+              <div id="sidebar-track-list" class="sidebar-track-list"></div>
             </div>
 
-            <!-- Reasoning panel -->
-            <div class="dashboard-panel hidden" id="reasoning-panel">
-              <section class="dashboard-card" style="height:100%">
-                <div class="dashboard-card-header">
-                  <div class="agent-panel-title">
-                    <span class="agent-role-badge" id="reasoning-agent-badge">—</span>
-                    <h3 id="reasoning-agent-name">Select a track</h3>
-                  </div>
-                  <div class="token-totals" id="token-totals"></div>
-                </div>
-                <div class="dashboard-card-body reasoning-body" id="reasoning-body">
-                  <div class="agent-empty" id="reasoning-empty">Select a track from the sidebar to view reasoning traces.</div>
-                  <div class="reasoning-turns" id="reasoning-turns"></div>
-                  <div class="live-thinking hidden" id="live-thinking">
-                    <div class="live-thinking-label">
-                      <span class="live-dot"></span>Thinking…
-                    </div>
-                    <div class="live-thinking-text" id="live-thinking-text"></div>
-                  </div>
-                </div>
-              </section>
-            </div>
+            <!-- Timeline panel -->
+            <div class="timeline-panel" id="timeline-panel">
+              <!-- Action banner (only when needed) -->
+              <div id="action-banner" class="action-banner hidden"></div>
 
-            <div class="dashboard-panel hidden" id="debug-panel">
-              <div id="progress-log"></div>
+              <!-- "All Tracks" overview grid -->
+              <div id="tracks-overview" class="tracks-overview hidden"></div>
+
+              <!-- Per-track detail -->
+              <div id="track-detail" class="track-detail">
+                <div class="track-token-stats hidden" id="track-token-stats"></div>
+                <div class="panel-subview-tabs" id="panel-subview-tabs">
+                  <button class="subview-tab active" id="steps-tab" type="button">Steps</button>
+                  <button class="subview-tab" id="files-tab" type="button">Files</button>
+                </div>
+                <div id="steps-panel" class="subview-panel">
+                  <div class="timeline-iterations" id="timeline-iterations"></div>
+                </div>
+                <div id="files-panel" class="subview-panel hidden">
+                  <div id="file-list"></div>
+                  <div id="file-viewer" class="file-viewer hidden"></div>
+                </div>
+              </div>
+
+              <!-- Debug log (replaces track-detail when debug mode active) -->
+              <div id="debug-panel-new" class="debug-log hidden">
+                <div id="progress-log"></div>
+              </div>
             </div>
           </div>
         </div>
