@@ -38,6 +38,7 @@ import {
   listSessions,
   getSession,
   updateSessionStatus,
+  updateSessionMaxTracks,
   getAgentActivity,
 } from "../src/db/index.ts";
 
@@ -377,7 +378,7 @@ ipcMain.handle("resume-research", async (_event, sessionId: string) => {
 
   activeBoxer = new BoxerClient(session.boxerUrl);
   activeSessionId = sessionId;
-  const modelConfig = RunModelConfigSchema.parse({ model: session.model });
+  const modelConfig = RunModelConfigSchema.parse({ model: session.model, maxTracks: session.maxTracks });
 
   runOrchestrator(session.briefPath, activeBoxer, modelConfig, { sessionId })
     .catch((err: unknown) => {
@@ -391,6 +392,13 @@ ipcMain.handle("resume-research", async (_event, sessionId: string) => {
 /** Set the active session for polling (when user clicks into a historical session). */
 ipcMain.handle("set-active-session", async (_event, sessionId: string) => {
   activeSessionId = sessionId;
+  return { ok: true };
+});
+
+/** Update the max parallel tracks for an existing session. */
+ipcMain.handle("set-max-tracks", async (_event, sessionId: string, maxTracks: number) => {
+  const parsed = RunModelConfigSchema.shape.maxTracks.parse(maxTracks);
+  await updateSessionMaxTracks(sessionId, parsed);
   return { ok: true };
 });
 

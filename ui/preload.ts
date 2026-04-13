@@ -34,6 +34,7 @@ export interface BugBountyAPI {
   getSessionEvents: (sessionId: string) => Promise<StoredEvent[]>;
   getSessionStateDir: (sessionId: string) => Promise<string>;
   setActiveSession: (sessionId: string) => Promise<{ ok: boolean }>;
+  setMaxTracks: (sessionId: string, maxTracks: number) => Promise<{ ok: boolean }>;
   stopResearch: (sessionId: string) => Promise<{ stopped: boolean } | { error: string }>;
   resumeResearch: (sessionId: string) => Promise<{ started: boolean; sessionId: string } | { error: string }>;
 
@@ -90,6 +91,7 @@ contextBridge.exposeInMainWorld("bugBounty", {
   getSessionEvents: (sessionId: string) => ipcRenderer.invoke("get-session-events", sessionId),
   getSessionStateDir: (sessionId: string) => ipcRenderer.invoke("get-session-state-dir", sessionId),
   setActiveSession: (sessionId: string) => ipcRenderer.invoke("set-active-session", sessionId),
+  setMaxTracks: (sessionId: string, maxTracks: number) => ipcRenderer.invoke("set-max-tracks", sessionId, maxTracks),
   stopResearch: (sessionId: string) => ipcRenderer.invoke("stop-research", sessionId),
   resumeResearch: (sessionId: string) => ipcRenderer.invoke("resume-research", sessionId),
 

@@ -76,6 +76,7 @@ const debugToggleBtn = el<HTMLButtonElement>("debug-toggle-btn");
 const backToSessionsBtn = el<HTMLButtonElement>("back-to-sessions");
 const stopSessionBtn = el<HTMLButtonElement>("stop-session-btn");
 const resumeSessionBtn = el<HTMLButtonElement>("resume-session-btn");
+const sessionMaxTracksInput = el<HTMLInputElement>("session-max-tracks");
 
 // ── Session layout ───────────────────────────────────────────────────────────
 const sidebarTrackList = el("sidebar-track-list");
@@ -1319,6 +1320,7 @@ async function openSession(s: SessionInfo): Promise<void> {
   applySessionActionButtons(s.status);
   activeTrackId = "orchestrator";
   activeTitle.textContent = s.target;
+  sessionMaxTracksInput.value = String(s.maxTracks ?? 6);
   runtimeTarget.textContent = s.target;
   runtimeModel.textContent = s.model;
   runtimeBoxer.textContent = s.boxerUrl;
@@ -1441,6 +1443,13 @@ resumeSessionBtn.addEventListener("click", async () => {
 });
 
 void initSessionsView();
+
+sessionMaxTracksInput.addEventListener("change", () => {
+  if (!activeSessionId) return;
+  const v = Math.max(1, Math.min(20, parseInt(sessionMaxTracksInput.value, 10) || 6));
+  sessionMaxTracksInput.value = String(v);
+  void api.setMaxTracks(activeSessionId, v);
+});
 
 stepsTab.addEventListener("click", () => setSubView("steps"));
 filesTab.addEventListener("click", () => setSubView("files"));
@@ -1590,6 +1599,7 @@ startBtn.addEventListener("click", async () => {
   runtimeSessionCard.classList.remove("hidden");
 
   const maxTracks = parseInt(maxTracksInput.value, 10) || 6;
+  sessionMaxTracksInput.value = String(maxTracks);
   const result = await api.startResearch(briefPath, boxerUrl, model, maxTracks);
   if (result.sessionId) {
     activeSessionId = result.sessionId;

@@ -51,17 +51,10 @@ function isApiLimitError(error: unknown): boolean {
       message.includes("billing") ||
       message.includes("payment required") ||
       message.includes("insufficient") ||
-      message.includes("exceeded") ||
       message.includes("limit reached") ||
       message.includes("throttled") ||
-      message.includes("timeout") ||
-      message.includes("network") ||
-      message.includes("connection") ||
-      message.includes("econnreset") ||
-      message.includes("etimedout") ||
       status === 429 ||
       status === 402 ||
-      status === 403 ||
       status === 503
     );
   }
@@ -129,8 +122,9 @@ function startHeartbeat(opts: AgentRunOptions): () => void {
 
     // Detect potential API limit/hang after 60 seconds
     if (elapsedSec > 60) {
+      const provider = getModelProvider(opts.modelConfig.model as SupportedModel);
       const timeoutError = new Error(`API request timeout after ${elapsedSec}s - possible rate limit or service issue`);
-      handleApiLimitError(timeoutError, opts, "Anthropic");
+      handleApiLimitError(timeoutError, opts, provider);
     }
   }, 5000);
 

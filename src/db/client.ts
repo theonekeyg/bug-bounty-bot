@@ -22,20 +22,13 @@ export async function initDb(dbPath: string): Promise<void> {
   // Prisma reads DATABASE_URL from the environment at connection time.
   process.env["DATABASE_URL"] = `file:${dbPath}`;
 
-  // Apply migrations (creates DB file + tables on first run; idempotent afterwards).
+  // Sync schema to the database (creates tables + adds new columns on every start).
+  // We use db push rather than migrate deploy — there is no migrations directory.
   const schemaPath = join(process.cwd(), "prisma", "schema.prisma");
-  try {
-    execSync(`node_modules/.bin/prisma migrate deploy --schema "${schemaPath}"`, {
-      env: process.env,
-      stdio: "pipe",
-    });
-  } catch {
-    // migrate deploy fails when no migrations dir exists — fall back to db push.
-    execSync(`node_modules/.bin/prisma db push --skip-generate --schema "${schemaPath}"`, {
-      env: process.env,
-      stdio: "pipe",
-    });
-  }
+  execSync(`node_modules/.bin/prisma db push --skip-generate --schema "${schemaPath}"`, {
+    env: process.env,
+    stdio: "pipe",
+  });
 
   _prisma = new PrismaClient({ log: [] });
   await _prisma.$connect();

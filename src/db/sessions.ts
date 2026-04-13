@@ -15,6 +15,7 @@ export interface SessionInfo {
   briefPath: string;
   briefContent: string;
   boxerUrl: string;
+  maxTracks: number;
   createdAt: string;
   completedAt: string | null;
   trackCount: number;
@@ -28,6 +29,7 @@ export async function createSession(input: {
   briefContent: string;
   model: string;
   boxerUrl: string;
+  maxTracks: number;
 }): Promise<string> {
   const db = getDb();
   const session = await db.session.create({
@@ -37,10 +39,16 @@ export async function createSession(input: {
       briefContent: input.briefContent,
       model: input.model,
       boxerUrl: input.boxerUrl,
+      maxTracks: input.maxTracks,
       status: "running",
     },
   });
   return session.id;
+}
+
+export async function updateSessionMaxTracks(id: string, maxTracks: number): Promise<void> {
+  const db = getDb();
+  await db.session.update({ where: { id }, data: { maxTracks } });
 }
 
 export async function updateSessionStatus(
@@ -71,6 +79,7 @@ export async function listSessions(): Promise<SessionInfo[]> {
     briefPath: s.briefPath,
     briefContent: s.briefContent,
     boxerUrl: s.boxerUrl,
+    maxTracks: s.maxTracks,
     createdAt: s.createdAt.toISOString(),
     completedAt: s.completedAt?.toISOString() ?? null,
     trackCount: s._count.tracks,
@@ -92,6 +101,7 @@ export async function getSession(id: string): Promise<SessionInfo | null> {
     briefPath: s.briefPath,
     briefContent: s.briefContent,
     boxerUrl: s.boxerUrl,
+    maxTracks: s.maxTracks,
     createdAt: s.createdAt.toISOString(),
     completedAt: s.completedAt?.toISOString() ?? null,
     trackCount: s._count.tracks,

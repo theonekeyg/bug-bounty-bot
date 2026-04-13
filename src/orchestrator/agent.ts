@@ -70,6 +70,7 @@ export async function runOrchestrator(
       briefContent: raw,
       model: modelConfig.model,
       boxerUrl: boxer.baseUrl ?? "http://localhost:8080",
+      maxTracks: modelConfig.maxTracks,
     });
     await initStateDir(sessionId);
   }

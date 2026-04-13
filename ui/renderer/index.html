@@ -1129,6 +1129,34 @@
         align-items: center;
         flex-shrink: 0;
       }
+      .max-tracks-control {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        color: var(--text-muted);
+        flex-shrink: 0;
+      }
+      .max-tracks-control span { user-select: none; }
+      .max-tracks-control input[type="number"] {
+        width: 42px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 5px;
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 600;
+        padding: 2px 5px;
+        text-align: center;
+        -moz-appearance: textfield;
+      }
+      .max-tracks-control input[type="number"]::-webkit-outer-spin-button,
+      .max-tracks-control input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      .max-tracks-control input[type="number"]:focus {
+        outline: none;
+        border-color: rgba(99,102,241,0.5);
+        background: rgba(255,255,255,0.09);
+      }
 
       /* ── Session layout: sidebar + panel ── */
       #progress-view {
@@ -1764,6 +1792,10 @@
               <div class="meta-pill" id="session-elapsed">00:00</div>
               <div class="meta-pill cost-pill" id="session-cost" style="display:none">—</div>
             </div>
+            <label class="max-tracks-control" title="Max parallel research tracks">
+              <span>Tracks</span>
+              <input id="session-max-tracks" type="number" min="1" max="20" value="6">
+            </label>
             <div class="session-actions">
               <button class="btn-sm" id="debug-toggle-btn" type="button">Debug</button>
               <button class="btn-danger" id="stop-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Stop</button>
