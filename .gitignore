@@ -4,9 +4,8 @@ output/
 *.env
 .env.*
 bun.lockb
-ui/main.js
-ui/preload.js
-ui/renderer/app.js
+ui/**/*.js
+ui/**/*.js.map
 test-results/.playwright-artifacts-0
 tests/screenshots/
 tests/report/

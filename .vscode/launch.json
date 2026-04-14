@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "bun ui",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "runtimeArgs": ["--no-sandbox", "--inspect=5858"],
+      "program": "${workspaceFolder}/ui/main.js",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/ui/**/*.js"
+      ],
+      "preLaunchTask": "ui:compile",
+      "sourceMapPathOverrides": {
+        "src/*": "${workspaceFolder}/src/*",
+        "ui/*": "${workspaceFolder}/ui/*",
+        "../src/*": "${workspaceFolder}/src/*",
+        "../ui/*": "${workspaceFolder}/ui/*"
+      },
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
+    }
+  ]
+}
