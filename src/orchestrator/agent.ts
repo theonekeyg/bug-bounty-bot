@@ -43,7 +43,7 @@ export interface OrchestratorOpts {
 
 export async function runOrchestrator(
   briefPath: string,
-  boxer: BoxerClient,
+  boxer: BoxerClient | null,
   modelConfig: RunModelConfig,
   opts: OrchestratorOpts = {},
 ): Promise<void> {
@@ -69,7 +69,7 @@ export async function runOrchestrator(
       briefPath,
       briefContent: raw,
       model: modelConfig.model,
-      boxerUrl: boxer.baseUrl ?? "http://localhost:8080",
+      boxerUrl: boxer?.baseUrl ?? "",
       maxTracks: modelConfig.maxTracks,
     });
     await initStateDir(sessionId);

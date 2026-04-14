@@ -19,7 +19,9 @@ export interface AgentRunOptions {
   iteration?: number; // Ralph Loop iteration index (for activity tracking)
   allowedTools?: string[];
   persistHeartbeats?: boolean;
-  /** Boxer API base URL. When set, the Bash tool routes through gVisor instead of the host shell. */
+  /** When true, the Bash tool routes through Boxer (gVisor). When false (default), runs on the local machine. */
+  sandbox?: boolean;
+  /** Boxer API base URL. Required when sandbox is true. */
   boxerUrl?: string;
   /** Boxer workspace ID to attach for persistent filesystem across turns. */
   workspaceId?: string;
@@ -190,16 +192,18 @@ function getAnthropicRequestOptions(opts: AgentRunOptions): Record<string, unkno
     allowDangerouslySkipPermissions: true,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
     ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
-    // OS-level sandbox for the Claude Code subprocess. failIfUnavailable: false allows graceful
-    // degradation on platforms where the sandbox is unavailable (e.g. nested containers).
+    // OS-level sandbox for the Claude Code subprocess. Only enabled when sandbox mode is on.
+    // failIfUnavailable: false allows graceful degradation on platforms where sandbox is unavailable.
     // allowLocalBinding lets Bash reach the Boxer API at localhost:8080 via curl.
-    sandbox: {
-      enabled: true,
-      failIfUnavailable: false,
-      network: {
-        allowLocalBinding: true,
+    ...(opts.sandbox ? {
+      sandbox: {
+        enabled: true,
+        failIfUnavailable: false,
+        network: {
+          allowLocalBinding: true,
+        },
       },
-    },
+    } : {}),
   };
 }
 
@@ -622,27 +626,46 @@ async function executeLocalTool(
   if (name === "Bash") {
     const command = String(input["command"] ?? "");
     const timeoutMs = typeof input["timeout"] === "number" ? input["timeout"] : 30000;
-    const networkMode = (["none", "sandbox", "host"].includes(String(input["network"])))
-      ? String(input["network"]) as "none" | "sandbox" | "host"
-      : "none";
 
-    if (!boxer) {
-      return "Error: Bash tool requires Boxer sandbox. Set boxerUrl in AgentRunOptions or ensure Boxer is running.";
-    }
-    try {
-      const result = await boxer.runShell(command, {
-        ...(workspaceId ? { workspaceId } : {}),
-        network: networkMode,
-        timeoutSecs: Math.max(1, Math.ceil(timeoutMs / 1000)),
-      });
-      const parts = [
-        result.stdout?.trim(),
-        result.stderr?.trim() ? `stderr:\n${result.stderr.trim()}` : "",
-        `exit_code: ${result.exitCode}`,
-      ].filter(Boolean);
-      return parts.join("\n") || "(no output)";
-    } catch (e) {
-      return `Error (Boxer): ${String(e)}`;
+    if (boxer) {
+      const networkMode = (["none", "sandbox", "host"].includes(String(input["network"])))
+        ? String(input["network"]) as "none" | "sandbox" | "host"
+        : "none";
+      try {
+        const result = await boxer.runShell(command, {
+          ...(workspaceId ? { workspaceId } : {}),
+          network: networkMode,
+          timeoutSecs: Math.max(1, Math.ceil(timeoutMs / 1000)),
+        });
+        const parts = [
+          result.stdout?.trim(),
+          result.stderr?.trim() ? `stderr:\n${result.stderr.trim()}` : "",
+          `exit_code: ${result.exitCode}`,
+        ].filter(Boolean);
+        return parts.join("\n") || "(no output)";
+      } catch (e) {
+        return `Error (Boxer): ${String(e)}`;
+      }
+    } else {
+      // No sandbox — run directly on the local machine.
+      const { execSync } = await import("child_process");
+      try {
+        const output = execSync(command, {
+          cwd,
+          timeout: timeoutMs,
+          encoding: "utf-8",
+          maxBuffer: 4 * 1024 * 1024,
+        });
+        return output || "(no output)";
+      } catch (e: unknown) {
+        const err = e as { stdout?: string; stderr?: string; status?: number };
+        const parts = [
+          err.stdout?.trim(),
+          err.stderr?.trim() ? `stderr:\n${err.stderr.trim()}` : "",
+          `exit_code: ${err.status ?? 1}`,
+        ].filter(Boolean);
+        return parts.join("\n") || `Error: ${String(e)}`;
+      }
     }
   }
 
@@ -680,7 +703,7 @@ async function runOpenRouterAgentLoop(
   const { insertAgentTurn, insertToolCall, updateToolCallResult } = await import("../db/activity.js");
   const useThinking = getModelThinking(opts.modelConfig.model as SupportedModel)?.type === "openrouter";
   const toolDefs = filterToolDefs(OPENROUTER_TOOL_DEFS, opts.allowedTools);
-  const boxer = opts.boxerUrl ? new BoxerClient(opts.boxerUrl) : undefined;
+  const boxer = (opts.sandbox && opts.boxerUrl) ? new BoxerClient(opts.boxerUrl) : undefined;
 
   const messages: OAIMessage[] = [
     { role: "system", content: opts.systemPrompt },

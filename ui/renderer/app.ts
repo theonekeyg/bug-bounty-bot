@@ -1332,6 +1332,17 @@ async function openSession(s: SessionInfo): Promise<void> {
   welcome.style.display = "none";
   progressView.style.display = "";
   refreshStartActionUI?.();
+
+  // Load persisted state for non-running sessions (completed/crashed/failed).
+  // Running sessions get their state via startPolling(); here we do a one-shot load.
+  if (s.status !== "running") {
+    await replaySessionEvents(s.id);
+    const states = await api.getProgress(s.id);
+    currentStates = states;
+    renderSessionSummary();
+    renderTrackSidebar();
+    if (selectedTrackId === null) renderTracksOverview();
+  }
 }
 
 async function replaySessionEvents(sessionId: string): Promise<void> {

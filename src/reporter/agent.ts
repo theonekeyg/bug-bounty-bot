@@ -36,7 +36,7 @@ Be precise. No filler. End response with: REPORT_COMPLETE`;
 
 export async function runReporter(
   sessionId: string,
-  boxer: BoxerClient,
+  boxer: BoxerClient | null,
   modelConfig: RunModelConfig,
 ): Promise<void> {
   void boxer; // reserved for future tool use

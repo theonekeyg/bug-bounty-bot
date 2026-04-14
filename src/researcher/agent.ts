@@ -23,13 +23,13 @@ import type { RunModelConfig } from "../types/provider.js";
 import { emitSessionEvent } from "../ipc/bus.js";
 import { updateTrackInDb, upsertTrack } from "../db/sessions.js";
 
-const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, trackId: string) =>
+const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, trackId: string, sandbox: boolean) =>
   `You are a Researcher in an autonomous security research system.
 
 You own one specific vulnerability hypothesis. Each time you run, read your state files and continue exactly where you left off.
 
 ## Tools available
-- Bash — run shell commands inside an isolated Boxer (gVisor) sandbox. No host filesystem access. Network defaults to "none"; pass network:"sandbox" for outbound access.
+- Bash — run shell commands${sandbox ? " inside an isolated Boxer (gVisor) sandbox. No host filesystem access. Network defaults to \"none\"; pass network:\"sandbox\" for outbound access." : " directly on the local machine."}
 - Read / Write / Edit — manage state and output files on the host filesystem
 - Grep / Glob — search codebases on the host filesystem
 - WebFetch / WebSearch — research CVEs, techniques, documentation
@@ -57,7 +57,7 @@ export async function runResearcher(
   sessionId: string,
   trackId: string,
   brief: Brief,
-  boxer: BoxerClient,
+  boxer: BoxerClient | null,
   modelConfig: RunModelConfig,
 ): Promise<void> {
   const paths = sessionPaths(sessionId);
@@ -71,34 +71,37 @@ export async function runResearcher(
     detail: "Preparing workspace and reading track state",
     stage: "Preparing Track",
   });
-  // Pre-create a Boxer workspace for this track so Claude can reference it
+  // Pre-create a Boxer workspace for this track so the agent has a persistent filesystem.
+  // Skipped when sandbox is disabled — commands run on the local machine instead.
   let workspaceId: string | undefined;
-  try {
-    const ws = await boxer.createWorkspace(`track-${trackId}`, "ubuntu:22.04");
-    workspaceId = ws.workspaceId;
-    const state = await readTrackState(sessionId, trackId);
-    if (state) await writeTrackState(sessionId, { ...state, workspaceId });
-    await updateTrackInDb(trackId, { workspaceId });
-    emitSessionEvent(sessionId, {
-      scope: "track",
-      kind: "stage_changed",
-      severity: "info",
-      trackId,
-      title: "Workspace ready",
-      detail: workspaceId,
-      stage: "Reading Hypothesis",
-    });
-  } catch {
-    console.warn(`[researcher:${trackId}] Boxer workspace creation failed — continuing without`);
-    emitSessionEvent(sessionId, {
-      scope: "track",
-      kind: "error",
-      severity: "warning",
-      trackId,
-      title: "Workspace creation failed",
-      detail: "Continuing without persistent Boxer workspace",
-      stage: "Reading Hypothesis",
-    });
+  if (modelConfig.sandbox && boxer) {
+    try {
+      const ws = await boxer.createWorkspace(`track-${trackId}`, "ubuntu:22.04");
+      workspaceId = ws.workspaceId;
+      const state = await readTrackState(sessionId, trackId);
+      if (state) await writeTrackState(sessionId, { ...state, workspaceId });
+      await updateTrackInDb(trackId, { workspaceId });
+      emitSessionEvent(sessionId, {
+        scope: "track",
+        kind: "stage_changed",
+        severity: "info",
+        trackId,
+        title: "Workspace ready",
+        detail: workspaceId,
+        stage: "Reading Hypothesis",
+      });
+    } catch {
+      console.warn(`[researcher:${trackId}] Boxer workspace creation failed — continuing without`);
+      emitSessionEvent(sessionId, {
+        scope: "track",
+        kind: "error",
+        severity: "warning",
+        trackId,
+        title: "Workspace creation failed",
+        detail: "Continuing without persistent Boxer workspace",
+        stage: "Reading Hypothesis",
+      });
+    }
   }
 
   let currentIteration = 1;
@@ -138,7 +141,7 @@ export async function runResearcher(
       });
       const result = await runAgent({
         modelConfig,
-        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir(), trackId),
+        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir(), trackId, modelConfig.sandbox),
         prompt: buildPrompt({
           sessionId,
           trackId,
@@ -153,7 +156,8 @@ export async function runResearcher(
         trackId,
         iteration: currentIteration,
         allowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"],
-        boxerUrl: boxer.baseUrl,
+        sandbox: modelConfig.sandbox,
+        ...(modelConfig.sandbox ? { boxerUrl: boxer.baseUrl } : {}),
         ...(workspaceId !== undefined ? { workspaceId } : {}),
       });
 
@@ -255,7 +259,7 @@ interface PromptArgs {
 function buildPrompt(args: PromptArgs): string {
   return `## Your Research Track
 Track ID: ${args.trackId}
-${args.workspaceId ? `Boxer Workspace ID: ${args.workspaceId} — include in Boxer API calls as "workspaceId" field for persistent filesystem` : "No Boxer workspace — use stateless sandbox executions."}
+${args.workspaceId ? `Boxer Workspace ID: ${args.workspaceId} — include in Boxer API calls as "workspaceId" field for persistent filesystem` : "No sandbox — Bash commands run directly on the local machine."}
 
 ## Target Brief
 - Target: ${args.brief.target}

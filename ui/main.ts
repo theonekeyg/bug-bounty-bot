@@ -321,9 +321,9 @@ ipcMain.handle("get-session-events", async (_event, sessionId: string) => {
 });
 
 /** Start a new research session from a brief. */
-ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string, maxTracks: number) => {
-  activeBoxer = new BoxerClient(boxerUrl);
-  const modelConfig = RunModelConfigSchema.parse({ model, maxTracks: maxTracks ?? 6 });
+ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string, maxTracks: number, sandbox = false) => {
+  activeBoxer = sandbox ? new BoxerClient(boxerUrl) : null;
+  const modelConfig = RunModelConfigSchema.parse({ model, maxTracks: maxTracks ?? 6, sandbox });
 
   // runOrchestrator creates the session in DB and returns after session is complete.
   // We don't await here — fire and forget so the IPC call returns immediately.
@@ -376,9 +376,10 @@ ipcMain.handle("resume-research", async (_event, sessionId: string) => {
   // Clear any previous stop signal so the loop can run
   await clearStopSignal(sessionId);
 
-  activeBoxer = new BoxerClient(session.boxerUrl);
+  const sandbox = !!session.boxerUrl;
+  activeBoxer = sandbox ? new BoxerClient(session.boxerUrl) : null;
   activeSessionId = sessionId;
-  const modelConfig = RunModelConfigSchema.parse({ model: session.model, maxTracks: session.maxTracks });
+  const modelConfig = RunModelConfigSchema.parse({ model: session.model, maxTracks: session.maxTracks, sandbox });
 
   runOrchestrator(session.briefPath, activeBoxer, modelConfig, { sessionId })
     .catch((err: unknown) => {
