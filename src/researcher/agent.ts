@@ -157,7 +157,7 @@ export async function runResearcher(
         iteration: currentIteration,
         allowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"],
         sandbox: modelConfig.sandbox,
-        ...(modelConfig.sandbox ? { boxerUrl: boxer.baseUrl } : {}),
+        ...(modelConfig.sandbox && boxer ? { boxerUrl: boxer.baseUrl } : {}),
         ...(workspaceId !== undefined ? { workspaceId } : {}),
       });
 
@@ -237,7 +237,7 @@ export async function runResearcher(
     },
   );
 
-  if (workspaceId) {
+  if (workspaceId && boxer) {
     try {
       await boxer.deleteWorkspace(workspaceId);
     } catch {

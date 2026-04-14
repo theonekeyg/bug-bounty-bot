@@ -555,6 +555,21 @@ const OPENROUTER_TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "WebSearch",
+      description: "Search the web for CVE details, vulnerability writeups, documentation, or exploit techniques. Returns titles, URLs, and snippets.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query." },
+          maxResults: { type: "number", description: "Max results to return (1-10, default 5)." },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 /** Execute a tool, routing Bash through Boxer when available. */
@@ -678,6 +693,35 @@ async function executeLocalTool(
       return text.replace(/<[^>]+>/g, " ").replace(/\s{3,}/g, "\n").slice(0, 8192);
     } catch (e) {
       return `Error fetching ${url}: ${String(e)}`;
+    }
+  }
+
+  if (name === "WebSearch") {
+    const query = String(input["query"] ?? "");
+    const maxResults = Math.min(10, Math.max(1, typeof input["maxResults"] === "number" ? input["maxResults"] : 5));
+    try {
+      // DuckDuckGo lite — no API key required
+      const params = new URLSearchParams({ q: query, kl: "us-en" });
+      const resp = await fetch(`https://html.duckduckgo.com/html/?${params}`, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; security-research-bot/1.0)" },
+        signal: AbortSignal.timeout(15000),
+      });
+      const html = await resp.text();
+      // Extract result blocks: title, URL, snippet
+      const results: { title: string; url: string; snippet: string }[] = [];
+      const blockRe = /<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a[^>]+class="result__url"[^>]*>([^<]+)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+      let m: RegExpExecArray | null;
+      while ((m = blockRe.exec(html)) !== null && results.length < maxResults) {
+        results.push({
+          url: m[1]?.trim() ?? "",
+          title: (m[2] ?? "").replace(/<[^>]+>/g, "").trim(),
+          snippet: (m[4] ?? "").replace(/<[^>]+>/g, "").trim(),
+        });
+      }
+      if (results.length === 0) return `No results found for: ${query}`;
+      return results.map((r, i) => `[${i + 1}] ${r.title}\n    ${r.url}\n    ${r.snippet}`).join("\n\n");
+    } catch (e) {
+      return `Error searching for "${query}": ${String(e)}`;
     }
   }
 
