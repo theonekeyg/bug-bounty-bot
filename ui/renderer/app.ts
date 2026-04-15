@@ -72,7 +72,6 @@ const sessionHealthPill = el("session-health-pill");
 const sessionElapsed = el("session-elapsed");
 const sessionCost = el("session-cost");
 const activeTitle = el("active-subagent-title");
-const debugToggleBtn = el<HTMLButtonElement>("debug-toggle-btn");
 const backToSessionsBtn = el<HTMLButtonElement>("back-to-sessions");
 const stopSessionBtn = el<HTMLButtonElement>("stop-session-btn");
 const resumeSessionBtn = el<HTMLButtonElement>("resume-session-btn");
@@ -88,6 +87,7 @@ const subagentTokenStats = el("subagent-token-stats");
 const stepsTab = el<HTMLButtonElement>("steps-tab");
 const filesTab = el<HTMLButtonElement>("files-tab");
 const toolsTab = el<HTMLButtonElement>("tools-tab");
+const debugTab = el<HTMLButtonElement>("debug-tab");
 const stepsPanel = el("steps-panel");
 const filesPanel = el("files-panel");
 const toolsPanel = el("tools-panel");
@@ -127,10 +127,9 @@ let activeSessionStateDir: string | null = null;
 let activeSessionModel = "";
 let activeSubagentId: string | null = null;  // kept for progress-log polling
 let selectedSubagentId: string | null = null; // null = "All Subagents"
-let subView: "steps" | "files" | "tools" = "steps";
+let subView: "steps" | "files" | "tools" | "debug" = "steps";
 let toolsFilterType = "all";
 let toolsFilterOutcomes: Set<string> = new Set(["ok", "error", "pending"]);
-let debugMode = false;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 let runtimeEvents: RuntimeEvent[] = [];
@@ -502,7 +501,6 @@ function resetRuntimeState(): void {
   subView = "steps";
   toolsFilterType = "all";
   toolsFilterOutcomes = new Set(["ok", "error", "pending"]);
-  debugMode = false;
   clearLiveIteration();
   document.body.classList.remove("session-live");
   resetSessionActionButtons();
@@ -510,7 +508,6 @@ function resetRuntimeState(): void {
   subagentsOverview.classList.remove("hidden");
   subagentDetail.classList.add("hidden");
   debugPanelNew.classList.add("hidden");
-  debugToggleBtn.classList.remove("active");
   subagentTokenStats.classList.add("hidden");
   renderSessionSummary();
   renderSubagentSidebar();
@@ -722,28 +719,35 @@ async function setSelectedSubagent(subagentId: string | null): Promise<void> {
   }
 }
 
-function setSubView(view: "steps" | "files" | "tools"): void {
+async function loadDebugPanel(subagentId: string): Promise<void> {
+  if (!activeSessionStateDir) {
+    progressLog.textContent = "";
+    return;
+  }
+  const path = `${activeSessionStateDir}/subagents/${subagentId}/progress.md`;
+  const content = await api.readFile(path);
+  progressLog.textContent = content ?? "";
+}
+
+function setSubView(view: "steps" | "files" | "tools" | "debug"): void {
   subView = view;
   stepsTab.classList.toggle("active", view === "steps");
   filesTab.classList.toggle("active", view === "files");
   toolsTab.classList.toggle("active", view === "tools");
+  debugTab.classList.toggle("active", view === "debug");
   stepsPanel.classList.toggle("hidden", view !== "steps");
   filesPanel.classList.toggle("hidden", view !== "files");
   toolsPanel.style.display = view === "tools" ? "flex" : "none";
+  debugPanelNew.classList.toggle("hidden", view !== "debug");
   if (view === "files" && selectedSubagentId) {
     void loadSubagentFiles(selectedSubagentId);
   }
   if (view === "tools" && selectedSubagentId && activeSessionId) {
     void loadToolsPanel(selectedSubagentId);
   }
-}
-
-function toggleDebugMode(): void {
-  debugMode = !debugMode;
-  debugToggleBtn.classList.toggle("active", debugMode);
-  debugPanelNew.classList.toggle("hidden", !debugMode);
-  subagentDetail.classList.toggle("hidden", debugMode || selectedSubagentId === null);
-  subagentsOverview.classList.toggle("hidden", debugMode || selectedSubagentId !== null);
+  if (view === "debug" && selectedSubagentId) {
+    void loadDebugPanel(selectedSubagentId);
+  }
 }
 
 // ── Subagents overview (All Subagents view) ────────────────────────────────────────
@@ -1510,6 +1514,7 @@ sessionMaxSubagentsInput.addEventListener("change", () => {
 stepsTab.addEventListener("click", () => setSubView("steps"));
 filesTab.addEventListener("click", () => setSubView("files"));
 toolsTab.addEventListener("click", () => setSubView("tools"));
+debugTab.addEventListener("click", () => setSubView("debug"));
 
 toolsTypeTrigger.addEventListener("click", () => {
   const isOpen = toolsTypeDropdown.classList.toggle("open");
@@ -1529,7 +1534,6 @@ document.querySelectorAll<HTMLButtonElement>(".tools-outcome-toggle").forEach((b
     if (selectedSubagentId && activeSessionId) void loadToolsPanel(selectedSubagentId);
   });
 });
-debugToggleBtn.addEventListener("click", () => toggleDebugMode());
 
 // ── Provider access persistence ─────────────────────────────────────────────
 
@@ -1706,8 +1710,8 @@ async function poll(): Promise<void> {
   renderActionBanner();
   if (selectedSubagentId === null) renderSubagentsOverview();
 
-  // Re-read progress log when debug mode active
-  if (debugMode && activeSubagentId && activeSessionStateDir) {
+  // Re-read progress log while the Debug tab is active
+  if (subView === "debug" && activeSubagentId && activeSessionStateDir) {
     const path = `${activeSessionStateDir}/subagents/${activeSubagentId}/progress.md`;
     const content = await api.readFile(path);
     if (content !== null && content !== progressLog.textContent) {
@@ -2272,9 +2276,11 @@ api.onResearchError((err: string) => {
     stepsTab.classList.remove("active");
     filesTab.classList.remove("active");
     toolsTab.classList.add("active");
+    debugTab.classList.remove("active");
     stepsPanel.classList.add("hidden");
     filesPanel.classList.add("hidden");
     toolsPanel.style.display = "flex";
+    debugPanelNew.classList.add("hidden");
     toolsFilterType = "all";
     toolsTypeLabel.textContent = "All tools";
     toolsFilterOutcomes = new Set(["ok", "error", "pending"]);

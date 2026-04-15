@@ -1857,7 +1857,6 @@
               <input id="session-max-subagents" type="number" min="1" max="20" value="1">
             </label>
             <div class="session-actions">
-              <button class="btn-sm" id="debug-toggle-btn" type="button">Debug</button>
               <span id="session-action-state" style="display:none; font-size:11px; opacity:0.7"></span>
               <button class="btn-danger" id="stop-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Stop</button>
               <button class="btn-primary btn-compact" id="resume-session-btn" type="button" style="display:none; padding:6px 14px; font-size:12px">Resume</button>
@@ -1886,6 +1885,7 @@
                   <button class="subview-tab active" id="steps-tab" type="button">Steps</button>
                   <button class="subview-tab" id="files-tab" type="button">Files</button>
                   <button class="subview-tab" id="tools-tab" type="button">Tools</button>
+                  <button class="subview-tab" id="debug-tab" type="button">Debug</button>
                 </div>
                 <div id="steps-panel" class="subview-panel">
                   <div class="timeline-iterations" id="timeline-iterations"></div>
@@ -1912,11 +1912,9 @@
                   </div>
                   <div id="tools-list" class="tools-list"></div>
                 </div>
-              </div>
-
-              <!-- Debug log (replaces subagent-detail when debug mode active) -->
-              <div id="debug-panel-new" class="debug-log hidden">
-                <div id="progress-log"></div>
+                <div id="debug-panel-new" class="subview-panel hidden">
+                  <div id="progress-log"></div>
+                </div>
               </div>
             </div>
           </div>

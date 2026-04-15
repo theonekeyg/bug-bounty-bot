@@ -6,7 +6,7 @@
 import { test, expect, _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 import { mkdtempSync } from "fs";
-import { rm } from "fs/promises";
+import { rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { initDb, closeDb, getDb } from "../src/db/client.js";
@@ -71,6 +71,7 @@ async function seedCompletedSessionWithToolActivity(userDataDir: string): Promis
   sessionId: string;
   subagentId: string;
   target: string;
+  progressLogText: string;
   firstToolOutput: string;
   secondToolOutput: string;
 }> {
@@ -78,6 +79,12 @@ async function seedCompletedSessionWithToolActivity(userDataDir: string): Promis
   const sessionTarget = "seeded-ui-session";
   const subagentId = "logic-001";
   const now = new Date();
+  const progressLogText = [
+    "---",
+    "**2026-01-01T00:00:00.000Z**",
+    "Seeded debug log entry",
+    "Second line of debug output",
+  ].join("\n");
   const firstToolOutput = [
     "line 1",
     "\u001b[31mansi-like output\u001b[0m",
@@ -105,6 +112,7 @@ async function seedCompletedSessionWithToolActivity(userDataDir: string): Promis
       startedAt: now.toISOString(),
       updatedAt: now.toISOString(),
     });
+    await writeFile(sessionPaths(sessionId).progressMd(subagentId), progressLogText, "utf-8");
     await upsertSubagent({
       id: subagentId,
       sessionId,
@@ -154,7 +162,7 @@ async function seedCompletedSessionWithToolActivity(userDataDir: string): Promis
     });
 
     await updateSessionStatus(sessionId, "completed");
-    return { sessionId, subagentId, target: sessionTarget, firstToolOutput, secondToolOutput };
+    return { sessionId, subagentId, target: sessionTarget, progressLogText, firstToolOutput, secondToolOutput };
   } finally {
     await closeDb();
   }
@@ -438,5 +446,29 @@ test.describe("Bug Bounty Agent UI", () => {
     await expect(outputBlocks.nth(1)).toContainText(seeded.firstToolOutput.slice(-200));
     await expect(outputBlocks.nth(3)).toBeVisible();
     await expect(outputBlocks.nth(3)).toContainText(seeded.secondToolOutput.slice(-200));
+  });
+
+  test("debug view is available as a subview tab", async () => {
+    await app.close();
+
+    const seededUserDataDir = makeUserDataDir();
+    userDataDirs.push(seededUserDataDir);
+    const seeded = await seedCompletedSessionWithToolActivity(seededUserDataDir);
+    seededSessionIds.push(seeded.sessionId);
+
+    const relaunched = await launchApp(seededUserDataDir);
+    app = relaunched.app;
+    page = relaunched.page;
+
+    await page.locator("#sessions-list .dashboard-card").filter({ hasText: seeded.target }).getByRole("button", { name: "View" }).click();
+    await page.locator("#sidebar-subagent-list .sidebar-subagent-item").filter({ hasText: "Logic 001" }).click();
+
+    await expect(page.locator("#debug-tab")).toBeVisible();
+    await page.locator("#debug-tab").click();
+
+    await expect(page.locator("#debug-tab")).toHaveClass(/active/);
+    await expect(page.locator("#debug-panel-new")).toBeVisible();
+    await expect(page.locator("#progress-log")).toContainText("Seeded debug log entry");
+    await expect(page.locator("#progress-log")).toContainText("Second line of debug output");
   });
 });
