@@ -87,8 +87,16 @@ const trackDetail = el("track-detail");
 const trackTokenStats = el("track-token-stats");
 const stepsTab = el<HTMLButtonElement>("steps-tab");
 const filesTab = el<HTMLButtonElement>("files-tab");
+const toolsTab = el<HTMLButtonElement>("tools-tab");
 const stepsPanel = el("steps-panel");
 const filesPanel = el("files-panel");
+const toolsPanel = el("tools-panel");
+const toolsList = el("tools-list");
+const toolsCallCount = el("tools-call-count");
+const toolsTypeDropdown = el("tools-type-dropdown");
+const toolsTypeTrigger = el<HTMLButtonElement>("tools-type-trigger");
+const toolsTypeLabel = el("tools-type-label");
+const toolsTypeMenu = el("tools-type-menu");
 const fileList = el("file-list");
 const fileViewer = el("file-viewer");
 const timelineIterations = el("timeline-iterations");
@@ -119,7 +127,9 @@ let activeSessionStateDir: string | null = null;
 let activeSessionModel = "";
 let activeTrackId: string | null = null;  // kept for progress-log polling
 let selectedTrackId: string | null = null; // null = "All Tracks"
-let subView: "steps" | "files" = "steps";
+let subView: "steps" | "files" | "tools" = "steps";
+let toolsFilterType = "all";
+let toolsFilterOutcomes: Set<string> = new Set(["ok", "error", "pending"]);
 let debugMode = false;
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
@@ -489,6 +499,8 @@ function resetRuntimeState(): void {
   trackTokensById.clear();
   selectedTrackId = null;
   subView = "steps";
+  toolsFilterType = "all";
+  toolsFilterOutcomes = new Set(["ok", "error", "pending"]);
   debugMode = false;
   clearLiveIteration();
   document.body.classList.remove("session-live");
@@ -685,6 +697,10 @@ async function setSelectedTrack(trackId: string | null): Promise<void> {
     tracksOverview.classList.add("hidden");
     trackDetail.classList.remove("hidden");
     subView = "steps";
+    toolsFilterType = "all";
+    toolsTypeLabel.textContent = "All tools";
+    toolsFilterOutcomes = new Set(["ok", "error", "pending"]);
+    document.querySelectorAll<HTMLButtonElement>(".tools-outcome-toggle").forEach((b) => b.classList.add("active"));
     setSubView("steps");
     renderTrackTokenStats(trackId);
     timelineIterations.innerHTML = "";
@@ -705,14 +721,19 @@ async function setSelectedTrack(trackId: string | null): Promise<void> {
   }
 }
 
-function setSubView(view: "steps" | "files"): void {
+function setSubView(view: "steps" | "files" | "tools"): void {
   subView = view;
   stepsTab.classList.toggle("active", view === "steps");
   filesTab.classList.toggle("active", view === "files");
+  toolsTab.classList.toggle("active", view === "tools");
   stepsPanel.classList.toggle("hidden", view !== "steps");
   filesPanel.classList.toggle("hidden", view !== "files");
+  toolsPanel.style.display = view === "tools" ? "flex" : "none";
   if (view === "files" && selectedTrackId) {
     void loadTrackFiles(selectedTrackId);
+  }
+  if (view === "tools" && selectedTrackId && activeSessionId) {
+    void loadToolsPanel(selectedTrackId);
   }
 }
 
@@ -1487,6 +1508,26 @@ sessionMaxTracksInput.addEventListener("change", () => {
 
 stepsTab.addEventListener("click", () => setSubView("steps"));
 filesTab.addEventListener("click", () => setSubView("files"));
+toolsTab.addEventListener("click", () => setSubView("tools"));
+
+toolsTypeTrigger.addEventListener("click", () => {
+  const isOpen = toolsTypeDropdown.classList.toggle("open");
+  toolsTypeMenu.classList.toggle("hidden", !isOpen);
+});
+
+document.querySelectorAll<HTMLButtonElement>(".tools-outcome-toggle").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const outcome = btn.dataset["outcome"]!;
+    if (toolsFilterOutcomes.has(outcome)) {
+      toolsFilterOutcomes.delete(outcome);
+      btn.classList.remove("active");
+    } else {
+      toolsFilterOutcomes.add(outcome);
+      btn.classList.add("active");
+    }
+    if (selectedTrackId && activeSessionId) void loadToolsPanel(selectedTrackId);
+  });
+});
 debugToggleBtn.addEventListener("click", () => toggleDebugMode());
 
 // ── Provider access persistence ─────────────────────────────────────────────
@@ -1920,6 +1961,100 @@ function renderFileList(files: TrackFileInfo[]): void {
   }
 }
 
+// ── Tools panel ──────────────────────────────────────────────────────────────
+
+async function loadToolsPanel(trackId: string): Promise<void> {
+  if (!activeSessionId) return;
+  toolsList.innerHTML = '<div class="timeline-empty">Loading…</div>';
+  const turns = await api.getAgentActivity(activeSessionId, trackId);
+  renderToolsPanel(turns);
+}
+
+function buildToolsTypeDropdown(toolNames: string[]): void {
+  toolsTypeMenu.innerHTML = "";
+  const options = ["all", ...toolNames];
+  for (const name of options) {
+    const btn = document.createElement("button");
+    btn.className = `dropdown-option${toolsFilterType === name ? " selected" : ""}`;
+    btn.type = "button";
+    btn.textContent = name === "all" ? "All tools" : name;
+    btn.addEventListener("click", () => {
+      toolsFilterType = name;
+      toolsTypeLabel.textContent = name === "all" ? "All tools" : name;
+      toolsTypeMenu.classList.add("hidden");
+      toolsTypeDropdown.classList.remove("open");
+      if (selectedTrackId && activeSessionId) void loadToolsPanel(selectedTrackId);
+    });
+    toolsTypeMenu.appendChild(btn);
+  }
+}
+
+function renderToolsPanel(turns: AgentTurnInfo[]): void {
+  const allCalls: Array<{ tc: AgentTurnInfo["toolCalls"][0]; iter: number }> = [];
+  for (const turn of turns) {
+    for (const tc of turn.toolCalls) {
+      allCalls.push({ tc, iter: turn.iteration });
+    }
+  }
+
+  const toolNames = [...new Set(allCalls.map(({ tc }) => tc.toolName))].sort();
+  buildToolsTypeDropdown(toolNames);
+
+  const visible = allCalls.filter(({ tc }) => {
+    if (toolsFilterType !== "all" && tc.toolName !== toolsFilterType) return false;
+    if (!toolsFilterOutcomes.has(tc.outcome)) return false;
+    return true;
+  });
+
+  toolsCallCount.textContent = `${visible.length} call${visible.length !== 1 ? "s" : ""}`;
+  toolsList.innerHTML = "";
+
+  if (allCalls.length === 0) {
+    toolsList.innerHTML = '<div class="timeline-empty">No tool calls recorded yet.</div>';
+    return;
+  }
+
+  if (visible.length === 0) {
+    toolsList.innerHTML = '<div class="timeline-empty">No tool calls match the current filter.</div>';
+    return;
+  }
+
+  for (const { tc, iter } of visible) {
+    const badgeClass = toolBadgeClass(tc.toolName);
+    const summary = summarizeToolInput(tc.toolName, tc.toolInput);
+    const outcomeKey: "ok" | "error" | "pending" =
+      tc.outcome === "ok" ? "ok" : tc.outcome === "error" ? "error" : "pending";
+
+    const row = document.createElement("div");
+    row.className = `tools-row ${badgeClass}`;
+    row.innerHTML = `
+      <span class="tool-badge ${badgeClass}">${escHtml(tc.toolName)}</span>
+      <span class="tool-summary">${escHtml(summary)}</span>
+      <span class="tools-row-meta">
+        <span class="tools-iter-label">iter ${iter}</span>
+        <span class="tools-duration">${tc.elapsedMs > 0 ? fmtMs(tc.elapsedMs) : ""}</span>
+        <span class="tools-outcome-chip ${outcomeKey}">${outcomeKey}</span>
+      </span>
+    `;
+
+    const detail = document.createElement("div");
+    detail.className = "tool-detail";
+    detail.innerHTML = `
+      <div class="tool-detail-section">
+        <div class="tool-detail-label">Input</div>
+        <div class="tool-detail-code">${escHtml(tc.toolInput)}</div>
+      </div>
+      ${tc.toolOutput ? `<div class="tool-detail-section">
+        <div class="tool-detail-label">Output</div>
+        <div class="tool-detail-code">${escHtml(tc.toolOutput.slice(0, 4096))}</div>
+      </div>` : ""}
+    `;
+
+    row.addEventListener("click", () => row.classList.toggle("expanded"));
+    toolsList.append(row, detail);
+  }
+}
+
 async function openFileView(file: TrackFileInfo): Promise<void> {
   const content = await api.readFile(file.path);
   if (content === null) return;
@@ -2023,10 +2158,16 @@ api.onAgentThinking((event: AgentThinkingEvent) => {
 api.onAgentTurn((event: AgentTurnEvent) => {
   accumulateTokens(event.turn);
   clearLiveIteration();
-  if (event.trackId === selectedTrackId && subView === "steps" && activeSessionId) {
-    void api.getAgentActivity(activeSessionId, event.trackId).then((turns) => {
-      renderUnifiedTimeline(event.trackId, turns);
-    });
+  if (event.trackId === selectedTrackId && activeSessionId) {
+    if (subView === "steps") {
+      void api.getAgentActivity(activeSessionId, event.trackId).then((turns) => {
+        renderUnifiedTimeline(event.trackId, turns);
+      });
+    } else if (subView === "tools") {
+      void api.getAgentActivity(activeSessionId, event.trackId).then((turns) => {
+        renderToolsPanel(turns);
+      });
+    }
   }
 });
 

@@ -505,7 +505,8 @@
 
       /* Tool detail expand */
       .tool-detail { display: none; margin: 4px 0 6px 0; border-radius: 8px; overflow: hidden; }
-      .tool-row.expanded + .tool-detail { display: block; }
+      .tool-row.expanded + .tool-detail,
+      .tools-row.expanded + .tool-detail { display: block; }
       .tool-detail-section { padding: 8px 12px; }
       .tool-detail-section + .tool-detail-section { border-top: 1px solid var(--border); }
       .tool-detail-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
@@ -514,6 +515,65 @@
         white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow-y: auto;
         background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px 10px;
       }
+
+      /* ── Tools panel ── */
+      .tools-filter-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
+        gap: 8px; flex-shrink: 0;
+      }
+      .tools-filter-left { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .tools-filter-btn {
+        display: flex; align-items: center; gap: 6px;
+        padding: 4px 10px; border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.08); background: transparent;
+        color: var(--text-soft); font-size: 12px; cursor: pointer; font-family: inherit;
+        transition: border-color 0.1s, color 0.1s;
+      }
+      .tools-filter-btn:hover { border-color: var(--border-strong); color: var(--text); }
+      .tools-filter-btn .dropdown-chevron { width: 7px; height: 7px; }
+      .tools-outcome-toggle {
+        padding: 3px 8px; border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.06); background: transparent;
+        color: var(--muted); font-size: 11px; cursor: pointer; font-family: inherit;
+        opacity: 0.45; transition: opacity 0.1s, border-color 0.1s, color 0.1s;
+      }
+      .tools-outcome-toggle.active { opacity: 1; }
+      .tools-outcome-toggle[data-outcome="ok"].active    { border-color: rgba(34,197,94,0.3);  color: #86efac; }
+      .tools-outcome-toggle[data-outcome="error"].active { border-color: rgba(239,68,68,0.3);  color: #f87171; }
+      .tools-outcome-toggle[data-outcome="pending"].active { border-color: rgba(255,255,255,0.12); color: var(--text-soft); }
+      .tools-call-count { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+      .tools-list {
+        flex: 1; overflow-y: auto; padding: 6px 10px;
+        display: flex; flex-direction: column;
+      }
+      /* Rich tool row for tools panel */
+      .tools-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 7px 10px 7px 12px;
+        border-radius: 7px; margin-bottom: 2px; cursor: pointer;
+        border-left: 3px solid transparent;
+        transition: background 0.1s;
+      }
+      .tools-row:hover { background: rgba(255,255,255,0.04); }
+      .tools-row.bash                      { border-left-color: #ef4444; }
+      .tools-row.read, .tools-row.write,
+      .tools-row.edit                      { border-left-color: #3b82f6; }
+      .tools-row.glob, .tools-row.grep     { border-left-color: #eab308; }
+      .tools-row.webfetch,
+      .tools-row.websearch                 { border-left-color: #22c55e; }
+      .tools-row-meta {
+        margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+      }
+      .tools-iter-label { font-size: 10px; color: var(--muted); }
+      .tools-duration { font-size: 11px; color: var(--muted); min-width: 36px; text-align: right; }
+      .tools-outcome-chip {
+        font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+        min-width: 52px; text-align: center;
+      }
+      .tools-outcome-chip.ok      { background: rgba(34,197,94,0.14);  color: #86efac; }
+      .tools-outcome-chip.error   { background: rgba(239,68,68,0.14);  color: #f87171; }
+      .tools-outcome-chip.pending { background: rgba(255,255,255,0.06); color: var(--muted); }
 
       /* Reasoning turns */
       .token-totals { font-size: 11px; color: var(--text-soft); display: flex; gap: 12px; flex-wrap: wrap; }
@@ -1825,6 +1885,7 @@
                 <div class="panel-subview-tabs" id="panel-subview-tabs">
                   <button class="subview-tab active" id="steps-tab" type="button">Steps</button>
                   <button class="subview-tab" id="files-tab" type="button">Files</button>
+                  <button class="subview-tab" id="tools-tab" type="button">Tools</button>
                 </div>
                 <div id="steps-panel" class="subview-panel">
                   <div class="timeline-iterations" id="timeline-iterations"></div>
@@ -1832,6 +1893,24 @@
                 <div id="files-panel" class="subview-panel hidden">
                   <div id="file-list"></div>
                   <div id="file-viewer" class="file-viewer hidden"></div>
+                </div>
+                <div id="tools-panel" class="subview-panel" style="display:none; flex-direction:column;">
+                  <div class="tools-filter-bar">
+                    <div class="tools-filter-left">
+                      <div class="dropdown" id="tools-type-dropdown">
+                        <button class="tools-filter-btn" id="tools-type-trigger" type="button">
+                          <span id="tools-type-label">All tools</span>
+                          <span class="dropdown-chevron"></span>
+                        </button>
+                        <div class="dropdown-menu hidden" id="tools-type-menu"></div>
+                      </div>
+                      <button class="tools-outcome-toggle active" data-outcome="ok"      type="button">✓ ok</button>
+                      <button class="tools-outcome-toggle active" data-outcome="error"   type="button">✗ error</button>
+                      <button class="tools-outcome-toggle active" data-outcome="pending" type="button">⋯ pending</button>
+                    </div>
+                    <span id="tools-call-count" class="tools-call-count"></span>
+                  </div>
+                  <div id="tools-list" class="tools-list"></div>
                 </div>
               </div>
 

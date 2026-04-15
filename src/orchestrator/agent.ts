@@ -153,7 +153,7 @@ export async function runOrchestrator(
   }
 
   await runRalphLoop(
-    async (): Promise<LoopIteration> => {
+    async (abortController): Promise<LoopIteration> => {
       if (tracksCreated) {
         emitSessionEvent(sessionId, {
           scope: "session",
@@ -198,6 +198,7 @@ export async function runOrchestrator(
         iteration: currentIteration,
         allowedTools: ["Write", "Read", "Edit", "Glob", "Grep"],
         persistHeartbeats: true,
+        abortController,
       });
 
       if (result.result.includes("ORCHESTRATION_DONE")) {

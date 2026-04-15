@@ -113,7 +113,7 @@ export async function runResearcher(
   let currentIteration = 1;
 
   await runRalphLoop(
-    async (): Promise<LoopIteration> => {
+    async (abortController): Promise<LoopIteration> => {
       const state = await readTrackState(sessionId, trackId);
       if (!state) throw new Error(`Track ${trackId} has no state`);
       if (state.status === "found" || state.status === "disproven" || state.status === "blocked") {
@@ -165,6 +165,7 @@ export async function runResearcher(
         sandbox: modelConfig.sandbox,
         ...(modelConfig.sandbox && boxer ? { boxerUrl: boxer.baseUrl } : {}),
         ...(workspaceId !== undefined ? { workspaceId } : {}),
+        abortController,
       });
 
       const response = result.result;

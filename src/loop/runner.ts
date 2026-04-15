@@ -31,12 +31,13 @@ export interface RalphLoopOptions {
 /**
  * Run an agent function in a Ralph Loop until it signals completion.
  *
- * @param agentFn - Async function representing one agent "turn". Must read its own
- *                  state from disk and return { done: true } when finished.
+ * @param agentFn - Async function representing one agent "turn". Receives an AbortController
+ *                  that will be aborted if the user triggers a stop mid-iteration.
+ *                  Must read its own state from disk and return { done: true } when finished.
  * @param opts    - Loop configuration.
  */
 export async function runRalphLoop(
-  agentFn: () => Promise<LoopIteration>,
+  agentFn: (abortController: AbortController) => Promise<LoopIteration>,
   opts: RalphLoopOptions,
 ): Promise<void> {
   const { sessionId, trackId, label, maxIterations = 50, delayMs = 1000, scope = "track" } = opts;
@@ -65,10 +66,36 @@ export async function runRalphLoop(
     iteration++;
     opts.onIteration?.(iteration);
 
+    // Create a per-iteration abort controller. A background poller aborts it
+    // if the user triggers a stop while the agent call is in flight.
+    const abortController = new AbortController();
+    const stopPoller = setInterval(() => {
+      if (checkStopSignal(sessionId) && !abortController.signal.aborted) {
+        abortController.abort();
+      }
+    }, 500);
+
     let result: LoopIteration;
     try {
-      result = await agentFn();
+      result = await agentFn(abortController);
     } catch (err) {
+      clearInterval(stopPoller);
+      // If the abort was triggered by a stop signal, exit cleanly instead of retrying.
+      if (abortController.signal.aborted) {
+        const msg = `[loop] "${label}" aborted mid-iteration by user stop.`;
+        await appendProgress(sessionId, trackId, msg);
+        emitRuntimeEvent({
+          scope,
+          kind: "stage_changed",
+          severity: "warning",
+          trackId: scope === "track" ? trackId : undefined,
+          title: `${label} stopped`,
+          detail: "Stopped by user — can be resumed.",
+          stage: "Stopped",
+        });
+        console.log(msg);
+        return;
+      }
       const msg = `[loop] Iteration ${iteration} threw: ${String(err)}`;
       await appendProgress(sessionId, trackId, msg);
       emitRuntimeEvent({
@@ -83,6 +110,8 @@ export async function runRalphLoop(
       // Continue — one bad iteration should not kill the loop
       await sleep(delayMs * 2);
       continue;
+    } finally {
+      clearInterval(stopPoller);
     }
 
     if (result.done) {

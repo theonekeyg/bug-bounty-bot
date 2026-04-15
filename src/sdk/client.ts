@@ -25,6 +25,8 @@ export interface AgentRunOptions {
   boxerUrl?: string;
   /** Boxer workspace ID to attach for persistent filesystem across turns. */
   workspaceId?: string;
+  /** Abort controller — abort() will cancel the in-flight agent call. */
+  abortController?: AbortController;
 }
 
 export interface AgentRunResult {
@@ -419,8 +421,17 @@ async function runClaudeStream(
       }
     }
   } catch (streamError) {
+    // Abort triggered by stop signal — return empty result instead of propagating
+    if (opts.abortController?.signal.aborted) {
+      return { result: "", costUsd: 0, turns: turnIndex };
+    }
     handleApiLimitError(streamError, opts, "Anthropic");
     throw streamError;
+  }
+
+  // If we exited the loop because the stream was aborted, return cleanly
+  if (opts.abortController?.signal.aborted) {
+    return { result: "", costUsd: 0, turns: turnIndex };
   }
 
   const error = new Error("Claude agent stream ended without a result message");
@@ -779,6 +790,10 @@ async function runOpenRouterAgentLoop(
   const cwd = opts.cwd ?? process.cwd();
 
   for (let loop = 0; loop < 100; loop++) {
+    if (opts.abortController?.signal.aborted) {
+      return { result: lastResult, costUsd: 0, turns: turnIndex };
+    }
+
     const requestParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & Record<string, unknown> = {
       model: opts.modelConfig.model,
       messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
@@ -1027,7 +1042,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       return withTemporaryEnv("ANTHROPIC_API_KEY", credential.secret ?? "", async () => {
         const stream = query({
           prompt: opts.prompt,
-          options: getAnthropicRequestOptions(opts),
+          options: {
+            ...getAnthropicRequestOptions(opts),
+            ...(opts.abortController ? { abortController: opts.abortController } : {}),
+          },
         });
         return runClaudeStream(stream, opts);
       });
@@ -1036,7 +1054,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
     // Anthropic Claude auth path uses the local Claude Code session and tools.
     const stream = query({
       prompt: opts.prompt,
-      options: getAnthropicRequestOptions(opts),
+      options: {
+        ...getAnthropicRequestOptions(opts),
+        ...(opts.abortController ? { abortController: opts.abortController } : {}),
+      },
     });
     return runClaudeStream(stream, opts);
   } finally {
