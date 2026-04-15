@@ -16,6 +16,6 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "include": ["src", "ui"],
+  "include": ["src", "ui", "tests/integration"],
   "exclude": ["node_modules", "ui/renderer"]
 }

@@ -136,10 +136,26 @@ function startHeartbeat(opts: AgentRunOptions): () => void {
 const openaiClients = new Map<string, OpenAI>();
 const openrouterClients = new Map<string, OpenAI>();
 
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+/** Injected in tests to intercept HTTP calls before the OpenAI client is constructed. */
+let _fetchOverride: FetchFn | undefined;
+
+/**
+ * Override the fetch function used by all OpenAI/OpenRouter clients.
+ * Clears the client cache so next call creates a fresh client with the new fetch.
+ * Pass `undefined` to restore default behaviour.
+ */
+export function __setFetchForTesting(f: FetchFn | undefined): void {
+  _fetchOverride = f;
+  openaiClients.clear();
+  openrouterClients.clear();
+}
+
 function getOpenAI(secret: string): OpenAI {
   const cached = openaiClients.get(secret);
   if (cached) return cached;
-  const client = new OpenAI({ apiKey: secret });
+  const client = new OpenAI({ apiKey: secret, ...(_fetchOverride ? { fetch: _fetchOverride } : {}) });
   openaiClients.set(secret, client);
   return client;
 }
@@ -154,6 +170,7 @@ function getOpenRouter(secret: string): OpenAI {
       "HTTP-Referer": "https://github.com/bug-bounty-agent",
       "X-Title": "Bug Bounty Agent",
     },
+    ...(_fetchOverride ? { fetch: _fetchOverride } : {}),
   });
   openrouterClients.set(secret, client);
   return client;

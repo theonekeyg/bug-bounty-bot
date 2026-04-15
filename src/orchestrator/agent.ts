@@ -39,6 +39,8 @@ When all files are written, end your response with: ORCHESTRATION_DONE`;
 export interface OrchestratorOpts {
   /** Resume an existing session instead of creating a new one. */
   sessionId?: string;
+  /** Override the inter-iteration delay in ms (default 5000). Useful in tests. */
+  delayMs?: number;
 }
 
 export async function runOrchestrator(
@@ -248,7 +250,7 @@ export async function runOrchestrator(
       trackId: "orchestrator",
       label: "Orchestrator",
       maxIterations: 100,
-      delayMs: 5000,
+      delayMs: opts.delayMs ?? 5000,
       scope: "session",
       onIteration: (i) => { currentIteration = i; },
     },

@@ -53,12 +53,18 @@ You own one specific vulnerability hypothesis. Each time you run, read your stat
 
 Never end a turn without appending to ${stateDir}/research/${trackId}/progress.md.`;
 
+export interface ResearcherOpts {
+  /** Override the inter-iteration delay in ms (default 2000). Useful in tests. */
+  delayMs?: number;
+}
+
 export async function runResearcher(
   sessionId: string,
   trackId: string,
   brief: Brief,
   boxer: BoxerClient | null,
   modelConfig: RunModelConfig,
+  opts: ResearcherOpts = {},
 ): Promise<void> {
   const paths = sessionPaths(sessionId);
 
@@ -232,7 +238,7 @@ export async function runResearcher(
       trackId,
       label: `Researcher:${trackId}`,
       maxIterations: 50,
-      delayMs: 2000,
+      delayMs: opts.delayMs ?? 2000,
       onIteration: (i) => { currentIteration = i; },
     },
   );

@@ -6,7 +6,7 @@ output/
 bun.lockb
 ui/**/*.js
 ui/**/*.js.map
-test-results/.playwright-artifacts-0
+test-results/
 tests/screenshots/
 tests/report/
 briefs/

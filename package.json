@@ -11,7 +11,7 @@
     "dev": "concurrently \"bun start\" \"bun ui\"",
     "lint": "eslint src ui",
     "format": "prettier --write .",
-    "test": "bun test",
+    "test": "bun test tests/integration",
     "test:ui": "bun run ui:compile && playwright test --config playwright.config.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.renderer.json"
   },
