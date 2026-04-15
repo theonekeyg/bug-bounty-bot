@@ -105,7 +105,7 @@ export type SupportedModel = (typeof SUPPORTED_MODELS)[number];
 export const SupportedModelSchema = z.enum(SUPPORTED_MODELS);
 export const RunModelConfigSchema = z.object({
   model: SupportedModelSchema,
-  maxTracks: z.number().int().min(1).max(20).default(6),
+  maxTracks: z.number().int().min(1).max(20).default(1),
   sandbox: z.boolean().default(false),
 });
 export type RunModelConfig = z.infer<typeof RunModelConfigSchema>;
