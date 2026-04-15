@@ -2158,14 +2158,6 @@ function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// ── Live streaming: append text chunks as they arrive from the agent ──────────
-api.onResearchLog((subagentId: string, text: string) => {
-  if (subagentId === activeSubagentId) {
-    progressLog.textContent = (progressLog.textContent ?? "") + text;
-    progressLog.scrollTop = progressLog.scrollHeight;
-  }
-});
-
 api.onRuntimeEvent((event: RuntimeEvent) => {
   applyRuntimeEvent(event);
 });

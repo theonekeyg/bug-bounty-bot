@@ -471,4 +471,34 @@ test.describe("Bug Bounty Agent UI", () => {
     await expect(page.locator("#progress-log")).toContainText("Seeded debug log entry");
     await expect(page.locator("#progress-log")).toContainText("Second line of debug output");
   });
+
+  test("debug view is not overwritten by live research-log events", async () => {
+    await app.close();
+
+    const seededUserDataDir = makeUserDataDir();
+    userDataDirs.push(seededUserDataDir);
+    const seeded = await seedCompletedSessionWithToolActivity(seededUserDataDir);
+    seededSessionIds.push(seeded.sessionId);
+
+    const relaunched = await launchApp(seededUserDataDir);
+    app = relaunched.app;
+    page = relaunched.page;
+
+    await page.locator("#sessions-list .dashboard-card").filter({ hasText: seeded.target }).getByRole("button", { name: "View" }).click();
+    await page.locator("#sidebar-subagent-list .sidebar-subagent-item").filter({ hasText: "Logic 001" }).click();
+    await page.locator("#debug-tab").click();
+
+    const progressLog = page.locator("#progress-log");
+    await expect(progressLog).toContainText("Seeded debug log entry");
+
+    await app.evaluate(({ BrowserWindow }, payload) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send("research-log", payload);
+    }, {
+      subagentId: seeded.subagentId,
+      text: "\ntransient streamed model output\n",
+    });
+
+    await expect(progressLog).toContainText("Seeded debug log entry");
+    await expect(progressLog).not.toContainText("transient streamed model output");
+  });
 });

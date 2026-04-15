@@ -7,6 +7,7 @@
 import { readFile, writeFile, mkdir, appendFile, rm, rename, readdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
+import JSON5 from "json5";
 import { z } from "zod";
 import { SubagentStateSchema, type SubagentState, type SubagentStatus } from "../types/index.js";
 
@@ -63,6 +64,15 @@ async function ensureStateLayout(sessionId: string): Promise<void> {
   await migrateLegacySubagentLayout(sessionId);
 }
 
+function parseSubagentState(raw: string): SubagentState {
+  try {
+    return SubagentStateSchema.parse(JSON.parse(raw));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return SubagentStateSchema.parse(JSON5.parse(raw));
+  }
+}
+
 // ── Subagent state ────────────────────────────────────────────────────────────
 
 export async function readSubagentState(sessionId: string, subagentId: string): Promise<SubagentState | null> {
@@ -70,7 +80,7 @@ export async function readSubagentState(sessionId: string, subagentId: string): 
   const p = sessionPaths(sessionId).statusJson(subagentId);
   if (!existsSync(p)) return null;
   const raw = await readFile(p, "utf-8");
-  return SubagentStateSchema.parse(JSON.parse(raw));
+  return parseSubagentState(raw);
 }
 
 export async function writeSubagentState(sessionId: string, state: SubagentState): Promise<void> {
