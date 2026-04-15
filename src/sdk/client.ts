@@ -40,6 +40,29 @@ function emitResearchLog(subagentId: string | undefined, text: string): void {
   ipcBus.emit("research-log", { subagentId, text });
 }
 
+async function appendModelTrace(
+  sessionId: string | undefined,
+  subagentId: string | undefined,
+  thinking: string,
+  text: string,
+): Promise<void> {
+  if (!sessionId || !subagentId) return;
+
+  const sections: string[] = [];
+  const trimmedThinking = thinking.trim();
+  const trimmedText = text.trim();
+
+  if (trimmedThinking) {
+    sections.push(`**Thinking**\n${trimmedThinking}`);
+  }
+  if (trimmedText) {
+    sections.push(`**Model Output**\n${trimmedText}`);
+  }
+  if (sections.length === 0) return;
+
+  await appendProgress(sessionId, subagentId, sections.join("\n\n"));
+}
+
 function isApiLimitError(error: unknown): boolean {
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
@@ -286,6 +309,8 @@ async function runClaudeStream(
             toolUseBlocks.push({ id: block.id, name: block.name, input: block.input });
           }
         }
+
+        await appendModelTrace(opts.sessionId, opts.subagentId, thinkingText, textOutput);
 
         try {
           const { insertAgentTurn, insertToolCall } = await import("../db/activity.js");
@@ -823,10 +848,7 @@ async function runOpenRouterAgentLoop(
     }
 
     // Log to progress.md
-    if (opts.sessionId && opts.subagentId) {
-      if (thinking) await appendProgress(opts.sessionId, opts.subagentId, `**Thinking:**\n${thinking.slice(0, 2000)}`);
-      if (text) await appendProgress(opts.sessionId, opts.subagentId, text.slice(0, 2000));
-    }
+    await appendModelTrace(opts.sessionId, opts.subagentId, thinking, text);
 
     // Record turn to DB and emit event
     if (opts.sessionId && opts.subagentId) {
@@ -1019,6 +1041,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
         });
 
         const text = response.output_text?.trim() ?? "";
+        await appendModelTrace(opts.sessionId, opts.subagentId, "", text);
         if (text) emitResearchLog(opts.subagentId, text + "\n");
         return { result: text, costUsd: 0, turns: 1 };
       } catch (error) {

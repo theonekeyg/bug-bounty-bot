@@ -106,6 +106,23 @@ describe("tool call execution", () => {
     expect(toolResults).toHaveLength(2);
   });
 
+  it("persists model thinking and output to the progress log", async () => {
+    const subagentId = "subagent-progress-trace";
+    await env.setupSubagent(subagentId, "Trace model output into progress log");
+
+    env.modelMock.enqueue(
+      textResponse("<think>internal reasoning trace</think>Visible model output\n\nSTATUS:disproven"),
+    );
+
+    await runResearcher(env.sessionId, subagentId, env.brief, null, env.modelConfig, { delayMs: 0 });
+
+    const progress = await readFile(sessionPaths(env.sessionId).progressMd(subagentId), "utf-8");
+    expect(progress).toContain("**Thinking**");
+    expect(progress).toContain("internal reasoning trace");
+    expect(progress).toContain("**Model Output**");
+    expect(progress).toContain("Visible model output");
+  });
+
   it("routes Bash through BoxerMock when sandbox is enabled", async () => {
     const subagentId = "subagent-bash-sandbox";
     await env.setupSubagent(subagentId, "Test bash sandbox routing");

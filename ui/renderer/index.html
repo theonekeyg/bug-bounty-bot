@@ -1670,19 +1670,87 @@
       }
 
       /* ── Debug log panel ── */
-      .debug-log {
-        flex: 1;
-        overflow-y: auto;
-        min-height: 0;
+      #debug-panel-new { display: flex; flex-direction: column; min-height: 0; overflow-y: hidden; }
+      .debug-filter-bar {
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+        padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
+        flex-shrink: 0;
       }
-      #progress-log {
-        height: 100%;
-        padding: 18px 20px 20px;
-        font-family: var(--font-mono);
-        font-size: 12px;
-        line-height: 1.6;
-        white-space: pre-wrap;
-        color: var(--text);
+      .debug-filter-label { font-size: 11px; color: var(--muted); margin-right: 2px; }
+      .debug-filter-btn {
+        display: flex; align-items: center; gap: 5px;
+        padding: 3px 10px; border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.1); background: transparent;
+        color: var(--text-soft); font-size: 11px; cursor: pointer; font-family: inherit;
+        transition: border-color 0.1s, color 0.1s, background 0.1s;
+      }
+      .debug-filter-btn:hover { border-color: var(--border-strong); color: var(--text); }
+      .debug-filter-btn.active { border-color: rgba(255,255,255,0.25); color: var(--text); background: rgba(255,255,255,0.06); }
+      .debug-blocks {
+        flex: 1; overflow-y: auto; padding: 10px 14px;
+        display: flex; flex-direction: column; gap: 5px; min-height: 0;
+      }
+      .debug-block {
+        border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0;
+      }
+      .debug-block.thinking  { border-color: rgba(139,92,246,0.25); }
+      .debug-block.model-output { border-color: rgba(34,197,94,0.2); }
+      .debug-block.loop      { border-color: rgba(255,255,255,0.06); }
+      .debug-block.tool      { border-color: rgba(234,179,8,0.2); }
+      .debug-block.runner    { border-color: rgba(59,130,246,0.2); }
+      .debug-block-header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 10px; cursor: pointer; user-select: none;
+      }
+      .debug-block-header:hover { background: rgba(255,255,255,0.03); }
+      .debug-type-badge {
+        font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+        flex-shrink: 0; font-family: var(--font-mono);
+      }
+      .debug-type-badge.thinking   { background: rgba(139,92,246,0.18); color: #c4b5fd; }
+      .debug-type-badge.model-output { background: rgba(34,197,94,0.14); color: #86efac; }
+      .debug-type-badge.loop       { background: rgba(255,255,255,0.07); color: var(--muted); }
+      .debug-type-badge.tool       { background: rgba(234,179,8,0.14); color: #fde047; }
+      .debug-type-badge.runner     { background: rgba(59,130,246,0.14); color: #93c5fd; }
+      .debug-type-badge.misc       { background: rgba(255,255,255,0.07); color: var(--muted); }
+      .debug-block-ts { font-size: 10px; color: var(--muted); flex-shrink: 0; font-family: var(--font-mono); }
+      .debug-block-preview {
+        flex: 1; font-size: 11px; font-family: var(--font-mono);
+        color: var(--text-soft); overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; min-width: 0;
+      }
+      .debug-block-chevron {
+        width: 6px; height: 6px; border-right: 1.5px solid var(--muted);
+        border-bottom: 1.5px solid var(--muted); transform: rotate(45deg);
+        flex-shrink: 0; transition: transform 0.15s;
+      }
+      .debug-block.expanded .debug-block-chevron { transform: rotate(-135deg); }
+      .debug-block-meta {
+        font-size: 10px; font-family: var(--font-mono); flex-shrink: 0; color: var(--muted);
+      }
+      .debug-block-meta.ok    { color: var(--green); }
+      .debug-block-meta.error { color: var(--red); }
+      .debug-block-body { display: none; }
+      .debug-block.expanded .debug-block-body { display: block; }
+      .debug-block-body pre {
+        margin: 0; padding: 10px 12px;
+        font-size: 11px; font-family: var(--font-mono);
+        white-space: pre-wrap; word-break: break-all;
+        color: var(--text); border-top: 1px solid var(--border);
+        max-height: 600px; overflow-y: auto; line-height: 1.55;
+      }
+      /* Structured tool call sections */
+      .debug-block-section { border-top: 1px solid var(--border); }
+      .debug-block-section:first-child { border-top: none; }
+      .debug-block-section-label {
+        font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); padding: 5px 12px 2px;
+      }
+      .debug-block-section pre {
+        margin: 0; padding: 4px 12px 10px;
+        font-size: 11px; font-family: var(--font-mono);
+        white-space: pre-wrap; word-break: break-all;
+        color: var(--text); max-height: 400px; overflow-y: auto; line-height: 1.55;
       }
     </style>
   </head>
@@ -1913,7 +1981,10 @@
                   <div id="tools-list" class="tools-list"></div>
                 </div>
                 <div id="debug-panel-new" class="subview-panel hidden">
-                  <div id="progress-log"></div>
+                  <div class="debug-filter-bar" id="debug-filter-bar">
+                    <span class="debug-filter-label">Show:</span>
+                  </div>
+                  <div class="debug-blocks" id="progress-log"></div>
                 </div>
               </div>
             </div>

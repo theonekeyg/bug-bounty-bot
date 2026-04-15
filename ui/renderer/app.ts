@@ -102,6 +102,7 @@ const fileViewer = el("file-viewer");
 const timelineIterations = el("timeline-iterations");
 const debugPanelNew = el("debug-panel-new");
 const progressLog = el("progress-log");
+const debugFilterBar = el("debug-filter-bar");
 
 // ── Permission overlay ───────────────────────────────────────────────────────
 const permissionOverlay = el("permission-overlay");
@@ -132,6 +133,8 @@ let toolsFilterType = "all";
 let toolsFilterOutcomes: Set<string> = new Set(["ok", "error", "pending"]);
 let pendingInstall: PendingInstall | null = null;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
+let debugPanelLastLen = -1;       // track progress.md length to detect changes during polling
+let debugPanelLastToolCount = -1; // track tool call count to detect changes during polling
 let runtimeEvents: RuntimeEvent[] = [];
 let sessionStage = "Starting";
 let sessionHeadlineText = "Preparing session...";
@@ -501,6 +504,9 @@ function resetRuntimeState(): void {
   subView = "steps";
   toolsFilterType = "all";
   toolsFilterOutcomes = new Set(["ok", "error", "pending"]);
+  debugFilterTypes = new Set(["thinking", "model-output", "loop", "tool", "runner", "misc"]);
+  debugPanelLastLen = -1;
+  debugPanelLastToolCount = -1;
   clearLiveIteration();
   document.body.classList.remove("session-live");
   resetSessionActionButtons();
@@ -698,6 +704,9 @@ async function setSelectedSubagent(subagentId: string | null): Promise<void> {
     toolsFilterType = "all";
     toolsTypeLabel.textContent = "All tools";
     toolsFilterOutcomes = new Set(["ok", "error", "pending"]);
+    debugFilterTypes = new Set(["thinking", "model-output", "loop", "tool", "runner", "misc"]);
+    debugPanelLastLen = -1;
+    debugPanelLastToolCount = -1;
     document.querySelectorAll<HTMLButtonElement>(".tools-outcome-toggle").forEach((b) => b.classList.add("active"));
     setSubView("steps");
     renderSubagentTokenStats(subagentId);
@@ -707,26 +716,246 @@ async function setSelectedSubagent(subagentId: string | null): Promise<void> {
       const turns = await api.getAgentActivity(activeSessionId, subagentId);
       renderUnifiedTimeline(subagentId, turns);
     }
-    // Sync for progress log
     activeSubagentId = subagentId;
-    if (activeSessionStateDir) {
-      const path = `${activeSessionStateDir}/subagents/${subagentId}/progress.md`;
-      const content = await api.readFile(path);
-      if (content !== null) {
-        progressLog.textContent = content;
-      }
+  }
+}
+
+// ── Debug panel — structured progress.md renderer ──────────────────────────
+
+type ProgressBlockType = "thinking" | "model-output" | "loop" | "tool" | "runner" | "misc";
+interface ProgressBlockSection { label: string; content: string; }
+interface ProgressBlock {
+  ts: string;
+  type: ProgressBlockType;
+  content: string;       // used when sections is absent
+  preview: string;
+  sections?: ProgressBlockSection[];  // structured display for tool calls
+  meta?: string;                      // e.g. outcome + duration
+}
+
+let debugFilterTypes: Set<ProgressBlockType> = new Set(["thinking", "model-output", "loop", "tool", "runner", "misc"]);
+
+function parseProgressBlocks(raw: string): ProgressBlock[] {
+  const chunks = raw.split(/\n---\n/);
+  const blocks: ProgressBlock[] = [];
+  for (const chunk of chunks) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+    // Extract timestamp: **<ts>** on first non-empty line
+    const tsMatch = trimmed.match(/^\*\*([^*]+)\*\*/);
+    const ts = tsMatch ? tsMatch[1]! : "";
+    const body = tsMatch ? trimmed.slice(tsMatch[0].length).trimStart() : trimmed;
+    if (!body) continue;
+    // Split into sub-sections by **Heading** markers at start of a line
+    const subSections = splitSubSections(body);
+    for (const { type, content } of subSections) {
+      const preview = content.replace(/\n/g, " ").replace(/\s+/g, " ").slice(0, 100);
+      blocks.push({ ts, type, content, preview });
     }
   }
+  return blocks;
+}
+
+function splitSubSections(body: string): { type: ProgressBlockType; content: string }[] {
+  // Try to split combined **Thinking**\n...\n\n**Model Output**\n... entries
+  const headingRe = /^(\*\*(Thinking|Model Output)\*\*\n?)/m;
+  const parts: { type: ProgressBlockType; content: string }[] = [];
+
+  let remaining = body;
+  while (remaining.length > 0) {
+    const m = headingRe.exec(remaining);
+    if (!m) break;
+    // Anything before the heading is misc
+    const before = remaining.slice(0, m.index).trim();
+    if (before) parts.push({ type: classifyLine(before), content: before });
+    const heading = m[2] as string;
+    remaining = remaining.slice(m.index + m[0].length);
+    // Find where the next **Heading** starts
+    const next = headingRe.exec(remaining);
+    const sectionContent = next ? remaining.slice(0, next.index).trim() : remaining.trim();
+    remaining = next ? remaining.slice(next.index) : "";
+    const type: ProgressBlockType = heading === "Thinking" ? "thinking" : "model-output";
+    parts.push({ type, content: sectionContent });
+  }
+
+  // Anything left (or if no headings found)
+  const leftover = remaining.trim();
+  if (leftover) parts.push({ type: classifyLine(leftover), content: leftover });
+  if (parts.length === 0) parts.push({ type: classifyLine(body), content: body });
+  return parts;
+}
+
+function classifyLine(text: string): ProgressBlockType {
+  const first = text.trimStart();
+  if (first.startsWith("[loop]")) return "loop";
+  if (first.startsWith("[tools]") || first.startsWith("[tool]")) return "loop"; // progress.md tool log → loop category; DB tool calls are type "tool"
+  if (first.startsWith("[runner]")) return "runner";
+  if (first.startsWith("[run]")) return "runner";
+  return "misc";
+}
+
+function toolCallsToBlocks(turns: AgentTurnInfo[]): ProgressBlock[] {
+  const blocks: ProgressBlock[] = [];
+  for (const turn of turns) {
+    for (const tc of turn.toolCalls) {
+      // Pretty-print input JSON
+      let inputFormatted = tc.toolInput;
+      try {
+        inputFormatted = JSON.stringify(JSON.parse(tc.toolInput) as unknown, null, 2);
+      } catch { /* keep raw */ }
+
+      const outcomeIcon = tc.outcome === "ok" ? "✓" : tc.outcome === "error" ? "✗" : "⋯";
+      const duration = tc.elapsedMs > 0 ? fmtMs(tc.elapsedMs) : "";
+      const meta = `${outcomeIcon} ${duration}`.trim();
+      const preview = `${tc.toolName}  ${inputFormatted.replace(/\n/g, " ").replace(/\s+/g, " ").slice(0, 80)}`;
+
+      const sections: ProgressBlockSection[] = [
+        { label: "Input", content: inputFormatted },
+      ];
+      if (tc.toolOutput) {
+        sections.push({ label: "Output", content: tc.toolOutput });
+      }
+
+      blocks.push({
+        ts: tc.startedAt,
+        type: "tool",
+        content: inputFormatted,
+        preview,
+        sections,
+        meta,
+      });
+    }
+  }
+  return blocks;
+}
+
+function fmtDebugTs(ts: string): string {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch { return ts; }
+}
+
+const DEBUG_TYPE_LABELS: Record<ProgressBlockType, string> = {
+  thinking: "thinking",
+  "model-output": "output",
+  loop: "loop",
+  tool: "tool",
+  runner: "runner",
+  misc: "misc",
+};
+
+function renderDebugFilterBar(): void {
+  // Re-build filter buttons (preserve existing label)
+  const label = debugFilterBar.querySelector(".debug-filter-label");
+  debugFilterBar.innerHTML = "";
+  if (label) debugFilterBar.appendChild(label);
+
+  const types: ProgressBlockType[] = ["thinking", "model-output", "loop", "tool", "runner", "misc"];
+  for (const t of types) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `debug-filter-btn ${debugFilterTypes.has(t) ? "active" : ""}`;
+    btn.dataset["type"] = t;
+    btn.textContent = DEBUG_TYPE_LABELS[t];
+    btn.addEventListener("click", () => {
+      if (debugFilterTypes.has(t)) {
+        if (debugFilterTypes.size > 1) debugFilterTypes.delete(t); // keep at least one
+      } else {
+        debugFilterTypes.add(t);
+      }
+      btn.classList.toggle("active", debugFilterTypes.has(t));
+      // Show/hide blocks without full re-render
+      progressLog.querySelectorAll<HTMLElement>(".debug-block").forEach((el) => {
+        const bt = el.dataset["blockType"] as ProgressBlockType | undefined;
+        if (bt) el.style.display = debugFilterTypes.has(bt) ? "" : "none";
+      });
+    });
+    debugFilterBar.appendChild(btn);
+  }
+}
+
+function renderDebugBlocks(blocks: ProgressBlock[]): void {
+  const wasAtBottom = progressLog.scrollHeight - progressLog.scrollTop - progressLog.clientHeight < 80;
+  progressLog.innerHTML = "";
+
+  if (blocks.length === 0) {
+    progressLog.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:12px;">No debug entries yet.</div>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const block of blocks) {
+    const startExpanded = block.type !== "thinking";
+    const card = document.createElement("div");
+    card.className = `debug-block ${block.type}${startExpanded ? " expanded" : ""}`;
+    card.dataset["blockType"] = block.type;
+    if (!debugFilterTypes.has(block.type)) card.style.display = "none";
+
+    const header = document.createElement("div");
+    header.className = "debug-block-header";
+    header.innerHTML = `
+      <span class="debug-type-badge ${block.type}">${DEBUG_TYPE_LABELS[block.type]}</span>
+      ${block.ts ? `<span class="debug-block-ts">${escHtml(fmtDebugTs(block.ts))}</span>` : ""}
+      <span class="debug-block-preview">${escHtml(block.preview)}</span>
+      ${block.meta ? `<span class="debug-block-meta ${block.meta.startsWith("✓") ? "ok" : block.meta.startsWith("✗") ? "error" : ""}">${escHtml(block.meta)}</span>` : ""}
+      <span class="debug-block-chevron"></span>
+    `;
+    header.addEventListener("click", () => card.classList.toggle("expanded"));
+
+    const body = document.createElement("div");
+    body.className = "debug-block-body";
+
+    if (block.sections) {
+      // Structured multi-section display (tool calls)
+      for (const section of block.sections) {
+        const sectionEl = document.createElement("div");
+        sectionEl.className = "debug-block-section";
+        const labelEl = document.createElement("div");
+        labelEl.className = "debug-block-section-label";
+        labelEl.textContent = section.label;
+        const pre = document.createElement("pre");
+        pre.textContent = section.content;
+        sectionEl.append(labelEl, pre);
+        body.appendChild(sectionEl);
+      }
+    } else {
+      const pre = document.createElement("pre");
+      pre.textContent = block.content;
+      body.appendChild(pre);
+    }
+
+    card.append(header, body);
+    frag.appendChild(card);
+  }
+  progressLog.appendChild(frag);
+  if (wasAtBottom) progressLog.scrollTop = progressLog.scrollHeight;
 }
 
 async function loadDebugPanel(subagentId: string): Promise<void> {
   if (!activeSessionStateDir) {
-    progressLog.textContent = "";
+    progressLog.innerHTML = "";
     return;
   }
   const path = `${activeSessionStateDir}/subagents/${subagentId}/progress.md`;
-  const content = await api.readFile(path);
-  progressLog.textContent = content ?? "";
+
+  const [content, turns] = await Promise.all([
+    api.readFile(path),
+    activeSessionId ? api.getAgentActivity(activeSessionId, subagentId) : Promise.resolve([] as AgentTurnInfo[]),
+  ]);
+
+  const progressBlocks = parseProgressBlocks(content ?? "");
+  const toolBlocks = toolCallsToBlocks(turns);
+
+  // Merge and sort by timestamp ascending (empty ts goes last)
+  const all = [...progressBlocks, ...toolBlocks].sort((a, b) => {
+    if (!a.ts) return 1;
+    if (!b.ts) return -1;
+    return a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0;
+  });
+
+  renderDebugFilterBar();
+  renderDebugBlocks(all);
 }
 
 function setSubView(view: "steps" | "files" | "tools" | "debug"): void {
@@ -1671,7 +1900,7 @@ startBtn.addEventListener("click", async () => {
   applySessionActionButtons("running");
   activeSubagentId = "orchestrator";
   activeTitle.textContent = "orchestrator";
-  progressLog.textContent = "";
+  progressLog.innerHTML = "";
   runtimeTarget.textContent = target;
   runtimeModel.textContent = getModelInfo(model as SupportedModel).label;
   runtimeBoxer.textContent = boxerUrl;
@@ -1713,10 +1942,23 @@ async function poll(): Promise<void> {
   // Re-read progress log while the Debug tab is active
   if (subView === "debug" && activeSubagentId && activeSessionStateDir) {
     const path = `${activeSessionStateDir}/subagents/${activeSubagentId}/progress.md`;
-    const content = await api.readFile(path);
-    if (content !== null && content !== progressLog.textContent) {
-      progressLog.textContent = content;
-      progressLog.scrollTop = progressLog.scrollHeight;
+    const [content, turns] = await Promise.all([
+      api.readFile(path),
+      activeSessionId ? api.getAgentActivity(activeSessionId, activeSubagentId) : Promise.resolve([] as AgentTurnInfo[]),
+    ]);
+    const totalToolCalls = turns.reduce((n, t) => n + t.toolCalls.length, 0);
+    if (content !== null && (content.length !== debugPanelLastLen || totalToolCalls !== debugPanelLastToolCount)) {
+      debugPanelLastLen = content.length;
+      debugPanelLastToolCount = totalToolCalls;
+      const progressBlocks = parseProgressBlocks(content);
+      const toolBlocks = toolCallsToBlocks(turns);
+      const all = [...progressBlocks, ...toolBlocks].sort((a, b) => {
+        if (!a.ts) return 1;
+        if (!b.ts) return -1;
+        return a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0;
+      });
+      renderDebugFilterBar();
+      renderDebugBlocks(all);
     }
   }
 
@@ -2201,6 +2443,8 @@ api.onAgentTurn((event: AgentTurnEvent) => {
       void api.getAgentActivity(activeSessionId, event.subagentId).then((turns) => {
         renderToolsPanel(event.subagentId, turns);
       });
+    } else if (subView === "debug") {
+      void loadDebugPanel(event.subagentId);
     }
   }
 });
