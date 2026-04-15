@@ -76,6 +76,7 @@ const debugToggleBtn = el<HTMLButtonElement>("debug-toggle-btn");
 const backToSessionsBtn = el<HTMLButtonElement>("back-to-sessions");
 const stopSessionBtn = el<HTMLButtonElement>("stop-session-btn");
 const resumeSessionBtn = el<HTMLButtonElement>("resume-session-btn");
+const sessionActionState = el("session-action-state");
 const sessionMaxTracksInput = el<HTMLInputElement>("session-max-tracks");
 
 // ── Session layout ───────────────────────────────────────────────────────────
@@ -465,7 +466,10 @@ function applySessionActionButtons(status: SessionInfo["status"] | "idle"): void
   activeSessionStatus = status;
   resetSessionActionButtons();
   stopSessionBtn.style.display = status === "running" ? "" : "none";
-  resumeSessionBtn.style.display = status === "crashed" || status === "failed" ? "" : "none";
+  const resumable = status === "crashed" || status === "failed";
+  resumeSessionBtn.style.display = resumable ? "" : "none";
+  sessionActionState.style.display = resumable ? "" : "none";
+  sessionActionState.textContent = resumable ? "Resume available" : "";
 }
 
 function resetRuntimeState(): void {
@@ -574,7 +578,26 @@ function renderTrackTokenStats(trackId: string): void {
 
 // ── Track sidebar ─────────────────────────────────────────────────────────────
 
+function renderTracksContainer(): void {
+  if (currentStates.length === 0 && activeSessionStatus !== "crashed" && activeSessionStatus !== "failed") {
+    tracksContainer.innerHTML = `<p style="font-size:12px;color:var(--muted)">No active session</p>`;
+    return;
+  }
+  tracksContainer.innerHTML = "";
+  const allTracks = [
+    { trackId: "orchestrator", status: activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running", headline: sessionHeadlineText },
+    ...currentStates.map((s) => ({ trackId: s.trackId, status: s.status, headline: trackHeadlineById.get(s.trackId) ?? s.hypothesis })),
+  ];
+  for (const { trackId, status, headline } of allTracks) {
+    const card = document.createElement("div");
+    card.className = "track-mini-card";
+    card.innerHTML = `<span class="status-dot ${status}" style="flex-shrink:0"></span><div style="min-width:0"><div style="font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${trackId}</div><div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${headline}</div></div><span class="track-status-badge ${status}" style="font-size:10px;flex-shrink:0">${status}</span>`;
+    tracksContainer.appendChild(card);
+  }
+}
+
 function renderTrackSidebar(): void {
+  renderTracksContainer();
   sidebarTrackList.innerHTML = "";
 
   // "All Tracks" entry
@@ -2040,7 +2063,15 @@ api.onResearchError((err: string) => {
     sessionStage = "Stopped";
     sessionHeadlineText = "Research session stopped";
     sessionLastUpdated = new Date().toISOString();
-    currentStates = [];
+    const now = new Date().toISOString();
+    currentStates = [{
+      trackId: "orchestrator",
+      status: "blocked",
+      hypothesis: "Research session stopped",
+      startedAt: now,
+      updatedAt: now,
+    }];
+    trackHeadlineById.set("orchestrator", "Research session stopped");
     pendingInstall = null;
     applySessionActionButtons("crashed");
     renderTrackSidebar();
