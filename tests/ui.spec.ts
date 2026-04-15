@@ -6,13 +6,57 @@
 import { test, expect, _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 import { mkdtempSync } from "fs";
+import { rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { initDb, closeDb, getDb } from "../src/db/client.js";
+import { createSession, updateSessionStatus, upsertSubagent } from "../src/db/sessions.js";
+import { initStateDir, sessionPaths, writeSubagentState } from "../src/loop/state.js";
 
 const APP_PATH = join(import.meta.dirname, "..", "ui", "main.js");
 
-async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
-  const userDataDir = mkdtempSync(join(tmpdir(), "bug-bounty-ui-"));
+function buildToolCall(id: string, index: number) {
+  return {
+    id,
+    toolUseId: `tool-use-${id}`,
+    toolName: "Write",
+    toolInput: JSON.stringify({ file_path: `state/output-${index}.md` }),
+    toolOutput: `output-${index}`,
+    outcome: "ok",
+    elapsedMs: index + 1,
+    startedAt: new Date(2026, 0, 1, 0, 0, index).toISOString(),
+    completedAt: new Date(2026, 0, 1, 0, 0, index + 1).toISOString(),
+  };
+}
+
+function buildLongOutput(length: number) {
+  return Array.from({ length }, (_, index) => String.fromCharCode(97 + (index % 26))).join("");
+}
+
+function buildTurn(toolCallCount: number) {
+  return [{
+    id: "turn-1",
+    sessionId: "session-1",
+    subagentId: "orchestrator",
+    iteration: 1,
+    turnIndex: 1,
+    thinkingText: "",
+    textOutput: "",
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    startedAt: new Date(2026, 0, 1).toISOString(),
+    completedAt: new Date(2026, 0, 1, 0, 1).toISOString(),
+    toolCalls: Array.from({ length: toolCallCount }, (_, index) => buildToolCall(`tool-${index + 1}`, index + 1)),
+  }];
+}
+
+function makeUserDataDir(): string {
+  return mkdtempSync(join(tmpdir(), "bug-bounty-ui-"));
+}
+
+async function launchApp(userDataDir = makeUserDataDir()): Promise<{ app: ElectronApplication; page: Page; userDataDir: string }> {
   const app = await electron.launch({
     args: ["--no-sandbox", `--user-data-dir=${userDataDir}`, APP_PATH],
     executablePath: join(import.meta.dirname, "..", "node_modules", ".bin", "electron"),
@@ -20,7 +64,100 @@ async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
   });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
-  return { app, page };
+  return { app, page, userDataDir };
+}
+
+async function seedCompletedSessionWithToolActivity(userDataDir: string): Promise<{
+  sessionId: string;
+  subagentId: string;
+  target: string;
+  firstToolOutput: string;
+  secondToolOutput: string;
+}> {
+  const dbPath = join(userDataDir, "bugbounty.db");
+  const sessionTarget = "seeded-ui-session";
+  const subagentId = "logic-001";
+  const now = new Date();
+  const firstToolOutput = [
+    "line 1",
+    "\u001b[31mansi-like output\u001b[0m",
+    "<trace>expanded tool output</trace>",
+    buildLongOutput(6000),
+  ].join("\n");
+  const secondToolOutput = `secondary output\n${buildLongOutput(2500)}`;
+
+  await initDb(dbPath);
+  try {
+    const sessionId = await createSession({
+      target: sessionTarget,
+      briefPath: "briefs/test-seeded.md",
+      briefContent: "TARGET: seeded-ui-session\nSCOPE: ui\nGOAL: verify tools panel",
+      model: "qwen/qwen-plus",
+      boxerUrl: "",
+      maxSubagents: 1,
+    });
+
+    await initStateDir(sessionId);
+    await writeSubagentState(sessionId, {
+      subagentId,
+      status: "found",
+      hypothesis: "Seeded tool output regression coverage",
+      startedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    await upsertSubagent({
+      id: subagentId,
+      sessionId,
+      hypothesis: "Seeded tool output regression coverage",
+      status: "found",
+    });
+
+    await getDb().agentTurn.create({
+      data: {
+        sessionId,
+        subagentId,
+        iteration: 1,
+        turnIndex: 1,
+        thinkingText: "",
+        textOutput: "",
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        startedAt: now,
+        completedAt: now,
+        toolCalls: {
+          create: [
+            {
+              toolUseId: `${sessionId}-tool-1`,
+              toolName: "Bash",
+              toolInput: JSON.stringify({ command: "printf 'seeded output'" }),
+              toolOutput: firstToolOutput,
+              outcome: "ok",
+              elapsedMs: 123,
+              startedAt: now,
+              completedAt: now,
+            },
+            {
+              toolUseId: `${sessionId}-tool-2`,
+              toolName: "Read",
+              toolInput: JSON.stringify({ file_path: "output/repro/seeded/report.txt" }),
+              toolOutput: secondToolOutput,
+              outcome: "ok",
+              elapsedMs: 98,
+              startedAt: now,
+              completedAt: now,
+            },
+          ],
+        },
+      },
+    });
+
+    await updateSessionStatus(sessionId, "completed");
+    return { sessionId, subagentId, target: sessionTarget, firstToolOutput, secondToolOutput };
+  } finally {
+    await closeDb();
+  }
 }
 
 async function getProviderStatus(page: Page, provider: "openai" | "anthropic" | "openrouter") {
@@ -30,13 +167,28 @@ async function getProviderStatus(page: Page, provider: "openai" | "anthropic" | 
 test.describe("Bug Bounty Agent UI", () => {
   let app: ElectronApplication;
   let page: Page;
+  let userDataDirs: string[] = [];
+  let seededSessionIds: string[] = [];
 
   test.beforeEach(async () => {
-    ({ app, page } = await launchApp());
+    const launched = await launchApp();
+    app = launched.app;
+    page = launched.page;
+    userDataDirs.push(launched.userDataDir);
   });
 
   test.afterEach(async () => {
-    await app.close();
+    await app.close().catch(() => undefined);
+    await Promise.all(userDataDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+    await Promise.all(seededSessionIds.flatMap((sessionId) => {
+      const paths = sessionPaths(sessionId);
+      return [
+        rm(paths.stateDir(), { recursive: true, force: true }),
+        rm(paths.outputDir(), { recursive: true, force: true }),
+      ];
+    }));
+    userDataDirs = [];
+    seededSessionIds = [];
   });
 
   test("launches without crash and shows title", async () => {
@@ -67,9 +219,11 @@ test.describe("Bug Bounty Agent UI", () => {
 
   test("stopped sessions render a resumable paused state", async () => {
     await page.evaluate(() => {
-      (window as Window & {
-        __bugBountyTest: { simulateStoppedSessionUi: () => void };
-      }).__bugBountyTest.simulateStoppedSessionUi();
+      const testWindow = window as unknown as {
+        __bugBountyTest?: { simulateStoppedSessionUi: () => void };
+      };
+      if (!testWindow.__bugBountyTest) throw new Error("Missing __bugBountyTest hook");
+      testWindow.__bugBountyTest.simulateStoppedSessionUi();
     });
 
     await expect(page.locator("#resume-session-btn")).toBeVisible();
@@ -168,5 +322,121 @@ test.describe("Bug Bounty Agent UI", () => {
     await expect(page.locator("#provider-setup-state")).toHaveText("Ready");
     await expect(page.locator("#start-btn")).toHaveText("Start Research");
     expect((await getProviderStatus(page, "anthropic")).state).toBe("ready");
+  });
+
+  test("tools panel preserves expansion and scroll on refresh", async () => {
+    const initialTurns = buildTurn(40);
+    const refreshedTurns = buildTurn(41);
+
+    await page.evaluate((turns) => {
+      const testWindow = window as unknown as {
+        __bugBountyTest?: { renderToolsPanel: (subagentId: string, turns: unknown[]) => void };
+      };
+      if (!testWindow.__bugBountyTest) throw new Error("Missing __bugBountyTest hook");
+      testWindow.__bugBountyTest.renderToolsPanel("orchestrator", turns);
+    }, initialTurns);
+
+    const firstRow = page.locator("#tools-list .tools-row").first();
+    await firstRow.click();
+    await expect(firstRow).toHaveClass(/expanded/);
+
+    const beforeScrollTop = await page.locator("#tools-list").evaluate((el) => {
+      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - 120);
+      return el.scrollTop;
+    });
+    expect(beforeScrollTop).toBeGreaterThan(0);
+
+    await page.evaluate((turns) => {
+      const testWindow = window as unknown as {
+        __bugBountyTest?: { renderToolsPanel: (subagentId: string, turns: unknown[]) => void };
+      };
+      if (!testWindow.__bugBountyTest) throw new Error("Missing __bugBountyTest hook");
+      testWindow.__bugBountyTest.renderToolsPanel("orchestrator", turns);
+    }, refreshedTurns);
+
+    const afterScrollTop = await page.locator("#tools-list").evaluate((el) => el.scrollTop);
+    expect(Math.abs(afterScrollTop - beforeScrollTop)).toBeLessThan(5);
+    await expect(page.locator("#tools-list .tools-row").first()).toHaveClass(/expanded/);
+  });
+
+  test("tools panel keeps full long output when several rows are expanded", async () => {
+    const turns = buildTurn(3);
+    const longOutput = buildLongOutput(7000);
+    turns[0]!.toolCalls[0]!.toolOutput = longOutput;
+    turns[0]!.toolCalls[1]!.toolOutput = `second-${longOutput}`;
+
+    await page.evaluate((toolTurns) => {
+      const testWindow = window as unknown as {
+        __bugBountyTest?: { renderToolsPanel: (subagentId: string, turns: unknown[]) => void };
+      };
+      if (!testWindow.__bugBountyTest) throw new Error("Missing __bugBountyTest hook");
+      testWindow.__bugBountyTest.renderToolsPanel("orchestrator", toolTurns);
+    }, turns);
+
+    await page.locator("#tools-list .tools-row").nth(0).click();
+    await page.locator("#tools-list .tools-row").nth(1).click();
+
+    const firstOutputText = await page.locator("#tools-list .tool-detail .tool-detail-code").nth(1).textContent();
+    const secondOutputText = await page.locator("#tools-list .tool-detail .tool-detail-code").nth(3).textContent();
+
+    expect(firstOutputText).toContain(longOutput.slice(-200));
+    expect(secondOutputText).toContain(longOutput.slice(-200));
+  });
+
+  test("tools panel renders control characters and ansi-like output as text", async () => {
+    const turns = buildTurn(1);
+    const noisyOutput = `line 1\n\u001b[31mansi\u001b[0m\nbinary:\u0000done\n<trace>`;
+    turns[0]!.toolCalls[0]!.toolOutput = noisyOutput;
+
+    await page.evaluate((toolTurns) => {
+      const testWindow = window as unknown as {
+        __bugBountyTest?: { renderToolsPanel: (subagentId: string, turns: unknown[]) => void };
+      };
+      if (!testWindow.__bugBountyTest) throw new Error("Missing __bugBountyTest hook");
+      testWindow.__bugBountyTest.renderToolsPanel("orchestrator", toolTurns);
+    }, turns);
+
+    await page.locator("#tools-list .tools-row").first().click();
+
+    const outputText = await page.locator("#tools-list .tool-detail .tool-detail-code").nth(1).textContent();
+    expect(outputText).toContain("line 1");
+    expect(outputText).toContain("ansi");
+    expect(outputText).toContain("binary:");
+    expect(outputText).toContain("done");
+    expect(outputText).toContain("<trace>");
+  });
+
+  test("real session flow shows expanded tool output in tools tab", async () => {
+    await app.close();
+
+    const seededUserDataDir = makeUserDataDir();
+    userDataDirs.push(seededUserDataDir);
+    const seeded = await seedCompletedSessionWithToolActivity(seededUserDataDir);
+    seededSessionIds.push(seeded.sessionId);
+
+    const relaunched = await launchApp(seededUserDataDir);
+    app = relaunched.app;
+    page = relaunched.page;
+
+    await expect(page.locator("#sessions-view")).toBeVisible();
+    await page.locator("#sessions-list .dashboard-card").filter({ hasText: seeded.target }).getByRole("button", { name: "View" }).click();
+
+    await expect(page.locator("#progress-view")).toBeVisible();
+    await page.locator("#sidebar-subagent-list .sidebar-subagent-item").filter({ hasText: "Logic 001" }).click();
+    await page.locator("#tools-tab").click();
+
+    const toolRows = page.locator("#tools-list .tools-row");
+    await expect(toolRows).toHaveCount(2);
+
+    await toolRows.nth(0).click();
+    await toolRows.nth(1).click();
+
+    const outputBlocks = page.locator("#tools-list .tool-detail .tool-detail-code");
+    await expect(outputBlocks.nth(1)).toBeVisible();
+    await expect(outputBlocks.nth(1)).toContainText("ansi-like output");
+    await expect(outputBlocks.nth(1)).toContainText("<trace>expanded tool output</trace>");
+    await expect(outputBlocks.nth(1)).toContainText(seeded.firstToolOutput.slice(-200));
+    await expect(outputBlocks.nth(3)).toBeVisible();
+    await expect(outputBlocks.nth(3)).toContainText(seeded.secondToolOutput.slice(-200));
   });
 });

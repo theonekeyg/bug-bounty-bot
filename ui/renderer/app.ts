@@ -149,6 +149,7 @@ let sessionOutputTokens = 0;
 let sessionCacheReadTokens = 0;
 let sessionCacheWriteTokens = 0;
 const subagentTokensById = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>();
+const expandedToolCallIdsBySubagent = new Map<string, Set<string>>();
 
 // Live iteration streaming
 let liveIterationEl: HTMLElement | null = null;
@@ -1867,18 +1868,12 @@ function renderUnifiedTimeline(subagentId: string, turns: AgentTurnInfo[]): void
           <span class="tool-outcome ${outcomeClass}">${outcome}</span>
         `;
 
-        const detail = document.createElement("div");
-        detail.className = "tool-detail";
-        detail.innerHTML = `
-          <div class="tool-detail-section">
-            <div class="tool-detail-label">Input</div>
-            <div class="tool-detail-code">${escHtml(tc.toolInput)}</div>
-          </div>
-          ${tc.toolOutput ? `<div class="tool-detail-section">
-            <div class="tool-detail-label">Output</div>
-            <div class="tool-detail-code">${escHtml(tc.toolOutput.slice(0, 4096))}</div>
-          </div>` : ""}
-        `;
+      const detail = document.createElement("div");
+      detail.className = "tool-detail";
+      detail.appendChild(buildToolDetailSection("Input", tc.toolInput));
+      if (tc.toolOutput) {
+        detail.appendChild(buildToolDetailSection("Output", tc.toolOutput));
+      }
 
         row.addEventListener("click", () => row.classList.toggle("expanded"));
         body.append(row, detail);
@@ -1967,7 +1962,16 @@ async function loadToolsPanel(subagentId: string): Promise<void> {
   if (!activeSessionId) return;
   toolsList.innerHTML = '<div class="timeline-empty">Loading…</div>';
   const turns = await api.getAgentActivity(activeSessionId, subagentId);
-  renderToolsPanel(turns);
+  renderToolsPanel(subagentId, turns);
+}
+
+function getExpandedToolCallIds(subagentId: string): Set<string> {
+  const stateKey = `${activeSessionId ?? "sessionless"}:${subagentId}`;
+  const existing = expandedToolCallIdsBySubagent.get(stateKey);
+  if (existing) return existing;
+  const next = new Set<string>();
+  expandedToolCallIdsBySubagent.set(stateKey, next);
+  return next;
 }
 
 function buildToolsTypeDropdown(toolNames: string[]): void {
@@ -1989,13 +1993,17 @@ function buildToolsTypeDropdown(toolNames: string[]): void {
   }
 }
 
-function renderToolsPanel(turns: AgentTurnInfo[]): void {
+function renderToolsPanel(subagentId: string, turns: AgentTurnInfo[]): void {
   const allCalls: Array<{ tc: AgentTurnInfo["toolCalls"][0]; iter: number }> = [];
   for (const turn of turns) {
     for (const tc of turn.toolCalls) {
       allCalls.push({ tc, iter: turn.iteration });
     }
   }
+
+  const expandedToolCallIds = getExpandedToolCallIds(subagentId);
+  const prevScrollTop = toolsList.scrollTop;
+  const wasAtBottom = toolsList.scrollHeight - toolsList.scrollTop - toolsList.clientHeight < 80;
 
   const toolNames = [...new Set(allCalls.map(({ tc }) => tc.toolName))].sort();
   buildToolsTypeDropdown(toolNames);
@@ -2019,6 +2027,7 @@ function renderToolsPanel(turns: AgentTurnInfo[]): void {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
   for (const { tc, iter } of visible) {
     const badgeClass = toolBadgeClass(tc.toolName);
     const summary = summarizeToolInput(tc.toolName, tc.toolInput);
@@ -2039,19 +2048,32 @@ function renderToolsPanel(turns: AgentTurnInfo[]): void {
 
     const detail = document.createElement("div");
     detail.className = "tool-detail";
-    detail.innerHTML = `
-      <div class="tool-detail-section">
-        <div class="tool-detail-label">Input</div>
-        <div class="tool-detail-code">${escHtml(tc.toolInput)}</div>
-      </div>
-      ${tc.toolOutput ? `<div class="tool-detail-section">
-        <div class="tool-detail-label">Output</div>
-        <div class="tool-detail-code">${escHtml(tc.toolOutput.slice(0, 4096))}</div>
-      </div>` : ""}
-    `;
+    detail.appendChild(buildToolDetailSection("Input", tc.toolInput));
+    if (tc.toolOutput) {
+      detail.appendChild(buildToolDetailSection("Output", tc.toolOutput));
+    }
 
-    row.addEventListener("click", () => row.classList.toggle("expanded"));
-    toolsList.append(row, detail);
+    if (expandedToolCallIds.has(tc.id)) {
+      row.classList.add("expanded");
+    }
+
+    row.addEventListener("click", () => {
+      const isExpanded = row.classList.toggle("expanded");
+      if (isExpanded) {
+        expandedToolCallIds.add(tc.id);
+      } else {
+        expandedToolCallIds.delete(tc.id);
+      }
+    });
+
+    fragment.append(row, detail);
+  }
+
+  toolsList.replaceChildren(fragment);
+  if (wasAtBottom) {
+    toolsList.scrollTop = toolsList.scrollHeight;
+  } else {
+    toolsList.scrollTop = prevScrollTop;
   }
 }
 
@@ -2112,6 +2134,22 @@ function fmtNum(n: number): string {
   return n.toLocaleString();
 }
 
+function buildToolDetailSection(label: string, content: string): HTMLElement {
+  const section = document.createElement("div");
+  section.className = "tool-detail-section";
+
+  const labelEl = document.createElement("div");
+  labelEl.className = "tool-detail-label";
+  labelEl.textContent = label;
+
+  const codeEl = document.createElement("div");
+  codeEl.className = "tool-detail-code";
+  codeEl.textContent = content;
+
+  section.append(labelEl, codeEl);
+  return section;
+}
+
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -2165,7 +2203,7 @@ api.onAgentTurn((event: AgentTurnEvent) => {
       });
     } else if (subView === "tools") {
       void api.getAgentActivity(activeSessionId, event.subagentId).then((turns) => {
-        renderToolsPanel(turns);
+        renderToolsPanel(event.subagentId, turns);
       });
     }
   }
@@ -2193,6 +2231,7 @@ api.onResearchError((err: string) => {
 (window as Window & {
   __bugBountyTest?: {
     simulateStoppedSessionUi: () => void;
+    renderToolsPanel: (subagentId: string, turns: AgentTurnInfo[]) => void;
   };
 }).__bugBountyTest = {
   simulateStoppedSessionUi: () => {
@@ -2219,5 +2258,27 @@ api.onResearchError((err: string) => {
     renderSessionSummary();
     renderSubagentsOverview();
     renderActionBanner();
+  },
+  renderToolsPanel: (subagentId: string, turns: AgentTurnInfo[]) => {
+    document.body.classList.add("session-live");
+    progressView.style.display = "";
+    sessionsView.style.display = "none";
+    welcome.style.display = "none";
+    selectedSubagentId = subagentId;
+    activeSubagentId = subagentId;
+    subagentDetail.classList.remove("hidden");
+    subagentsOverview.classList.add("hidden");
+    subView = "tools";
+    stepsTab.classList.remove("active");
+    filesTab.classList.remove("active");
+    toolsTab.classList.add("active");
+    stepsPanel.classList.add("hidden");
+    filesPanel.classList.add("hidden");
+    toolsPanel.style.display = "flex";
+    toolsFilterType = "all";
+    toolsTypeLabel.textContent = "All tools";
+    toolsFilterOutcomes = new Set(["ok", "error", "pending"]);
+    document.querySelectorAll<HTMLButtonElement>(".tools-outcome-toggle").forEach((btn) => btn.classList.add("active"));
+    renderToolsPanel(subagentId, turns);
   },
 };

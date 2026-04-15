@@ -33,7 +33,7 @@ export const PROVIDER_MODELS = {
   openrouter: [
     { value: "qwen/qwen-plus",                             label: "Qwen3 Plus",           description: "Alibaba Qwen Plus — strong reasoning & code" },
     { value: "thudm/glm-4-plus",                           label: "GLM-4 Plus",           description: "Zhipu AI GLM-4 Plus — multilingual" },
-    { value: "nvidia/llama-3.1-nemotron-ultra-253b-v1",    label: "NVIDIA Nemotron Ultra", description: "NVIDIA Nemotron Ultra 253B" },
+    { value: "nvidia/nemotron-3-super-120b-a12b",          label: "NVIDIA Nemotron 3 Super", description: "NVIDIA Nemotron 3 Super 120B" },
   ],
 } as const;
 
@@ -98,7 +98,7 @@ export const SUPPORTED_MODELS = [
   // OpenRouter
   "qwen/qwen-plus",
   "thudm/glm-4-plus",
-  "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+  "nvidia/nemotron-3-super-120b-a12b",
 ] as const;
 
 export type SupportedModel = (typeof SUPPORTED_MODELS)[number];
