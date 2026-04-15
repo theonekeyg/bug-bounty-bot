@@ -9,7 +9,7 @@ const CAP = 32 * 1024; // 32 KB cap on stored text fields
 
 export async function insertAgentTurn(input: {
   sessionId: string;
-  trackId: string;
+  subagentId: string;
   iteration: number;
   turnIndex: number;
   thinkingText: string;
@@ -23,7 +23,7 @@ export async function insertAgentTurn(input: {
   const turn = await db.agentTurn.create({
     data: {
       sessionId: input.sessionId,
-      trackId: input.trackId,
+      subagentId: input.subagentId,
       iteration: input.iteration,
       turnIndex: input.turnIndex,
       thinkingText: input.thinkingText.slice(0, CAP),
@@ -75,18 +75,18 @@ export async function updateToolCallResult(
 
 export async function getAgentActivity(
   sessionId: string,
-  trackId: string,
+  subagentId: string,
 ): Promise<AgentTurnInfo[]> {
   const db = getDb();
   const turns = await db.agentTurn.findMany({
-    where: { sessionId, trackId },
+    where: { sessionId, subagentId },
     orderBy: [{ iteration: "asc" }, { turnIndex: "asc" }],
     include: { toolCalls: { orderBy: { startedAt: "asc" } } },
   });
   return turns.map((t) => ({
     id: t.id,
     sessionId: t.sessionId,
-    trackId: t.trackId,
+    subagentId: t.subagentId,
     iteration: t.iteration,
     turnIndex: t.turnIndex,
     thinkingText: t.thinkingText,

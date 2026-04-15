@@ -12,7 +12,7 @@ import { webSearchTool, fetchUrlTool } from "./search.js";
 import { makeSemgrepTool, makeNpmAuditTool } from "./analysis.js";
 
 export interface ToolRegistryOptions {
-  trackId: string;
+  subagentId: string;
   commandLogPath: string;
   boxer: BoxerClient;
 }
@@ -28,12 +28,12 @@ export function buildToolRegistry(opts: ToolRegistryOptions): ToolDefinition<any
     webSearchTool,
     fetchUrlTool,
     makeRunCommandTool({
-      trackId: opts.trackId,
+      subagentId: opts.subagentId,
       commandLogPath: opts.commandLogPath,
       boxer: opts.boxer,
     }),
-    makeSemgrepTool({ boxer: opts.boxer, trackId: opts.trackId }),
-    makeNpmAuditTool({ boxer: opts.boxer, trackId: opts.trackId }),
+    makeSemgrepTool({ boxer: opts.boxer, subagentId: opts.subagentId }),
+    makeNpmAuditTool({ boxer: opts.boxer, subagentId: opts.subagentId }),
   ];
 }
 

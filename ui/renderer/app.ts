@@ -3,8 +3,8 @@
  * Communicates with main process via window.bugBounty (preload bridge).
  */
 
-import type { BugBountyAPI, SessionInfo, AgentTurnInfo, TrackFileInfo } from "../preload.js";
-import type { TrackState, PendingInstall, RuntimeEvent } from "../../src/types/index.js";
+import type { BugBountyAPI, SessionInfo, AgentTurnInfo, SubagentFileInfo } from "../preload.js";
+import type { SubagentState, PendingInstall, RuntimeEvent } from "../../src/types/index.js";
 import type { AgentThinkingEvent, AgentTurnEvent, AgentToolProgressEvent } from "../../src/ipc/bus.js";
 import {
   DEFAULT_MODEL,
@@ -47,7 +47,7 @@ const linksInput = el<HTMLInputElement>("links");
 const contextInput = el<HTMLTextAreaElement>("context");
 const modelTrigger = el<HTMLButtonElement>("model-trigger");
 const boxerUrlInput = el<HTMLInputElement>("boxer-url");
-const tracksContainer = el("tracks-container");
+const subagentsContainer = el("subagents-container");
 const providerAccessSummary = el("provider-access-summary");
 const providerCards = el("provider-cards");
 const providerSetupCard = el("provider-setup-card");
@@ -71,20 +71,20 @@ const sessionStagePill = el("session-stage-pill");
 const sessionHealthPill = el("session-health-pill");
 const sessionElapsed = el("session-elapsed");
 const sessionCost = el("session-cost");
-const activeTitle = el("active-track-title");
+const activeTitle = el("active-subagent-title");
 const debugToggleBtn = el<HTMLButtonElement>("debug-toggle-btn");
 const backToSessionsBtn = el<HTMLButtonElement>("back-to-sessions");
 const stopSessionBtn = el<HTMLButtonElement>("stop-session-btn");
 const resumeSessionBtn = el<HTMLButtonElement>("resume-session-btn");
 const sessionActionState = el("session-action-state");
-const sessionMaxTracksInput = el<HTMLInputElement>("session-max-tracks");
+const sessionMaxSubagentsInput = el<HTMLInputElement>("session-max-subagents");
 
 // ── Session layout ───────────────────────────────────────────────────────────
-const sidebarTrackList = el("sidebar-track-list");
+const sidebarSubagentList = el("sidebar-subagent-list");
 const actionBanner = el("action-banner");
-const tracksOverview = el("tracks-overview");
-const trackDetail = el("track-detail");
-const trackTokenStats = el("track-token-stats");
+const subagentsOverview = el("subagents-overview");
+const subagentDetail = el("subagent-detail");
+const subagentTokenStats = el("subagent-token-stats");
 const stepsTab = el<HTMLButtonElement>("steps-tab");
 const filesTab = el<HTMLButtonElement>("files-tab");
 const toolsTab = el<HTMLButtonElement>("tools-tab");
@@ -112,8 +112,8 @@ const permDeny = el<HTMLButtonElement>("perm-deny");
 
 // ── Sidebar form misc ────────────────────────────────────────────────────────
 const modelInput = el<HTMLInputElement>("model-name");
-const maxTracksInput = el<HTMLInputElement>("max-tracks");
-const maxTracksLabel = el("max-tracks-label");
+const maxSubagentsInput = el<HTMLInputElement>("max-subagents");
+const maxSubagentsLabel = el("max-subagents-label");
 const runtimeSessionCard = el("runtime-session-card");
 const runtimeHealthDot = el("runtime-health-dot");
 const runtimeTarget = el("runtime-target");
@@ -125,8 +125,8 @@ const runtimeHealthLabel = el("runtime-health-label");
 let activeSessionId: string | null = null;
 let activeSessionStateDir: string | null = null;
 let activeSessionModel = "";
-let activeTrackId: string | null = null;  // kept for progress-log polling
-let selectedTrackId: string | null = null; // null = "All Tracks"
+let activeSubagentId: string | null = null;  // kept for progress-log polling
+let selectedSubagentId: string | null = null; // null = "All Subagents"
 let subView: "steps" | "files" | "tools" = "steps";
 let toolsFilterType = "all";
 let toolsFilterOutcomes: Set<string> = new Set(["ok", "error", "pending"]);
@@ -139,16 +139,16 @@ let sessionHeadlineText = "Preparing session...";
 let sessionLastUpdated: string | null = null;
 let sessionStartedAt: string | null = null;
 let activeSessionStatus: SessionInfo["status"] | "idle" = "idle";
-let currentStates: TrackState[] = [];
-const trackHeadlineById = new Map<string, string>();
-const trackStageById = new Map<string, string>();
+let currentStates: SubagentState[] = [];
+const subagentHeadlineById = new Map<string, string>();
+const subagentStageById = new Map<string, string>();
 
 // Token accumulation
 let sessionInputTokens = 0;
 let sessionOutputTokens = 0;
 let sessionCacheReadTokens = 0;
 let sessionCacheWriteTokens = 0;
-const trackTokensById = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>();
+const subagentTokensById = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>();
 
 // Live iteration streaming
 let liveIterationEl: HTMLElement | null = null;
@@ -410,7 +410,7 @@ function setSessionConfigLocked(locked: boolean): void {
   contextInput.disabled = locked;
   modelTrigger.disabled = locked;
   boxerUrlInput.disabled = locked;
-  maxTracksInput.disabled = locked;
+  maxSubagentsInput.disabled = locked;
 }
 
 function formatEventTime(timestamp: string): string {
@@ -439,13 +439,13 @@ function formatElapsed(timestamp: string | null): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function humanizeTrackTitle(trackId: string, fallback?: string): string {
-  const source = fallback && fallback.trim().length > 0 ? fallback : trackId;
+function humanizeSubagentTitle(subagentId: string, fallback?: string): string {
+  const source = fallback && fallback.trim().length > 0 ? fallback : subagentId;
   return source.replaceAll(/[-_]/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-function summarizeTrack(state: TrackState): string {
-  return trackHeadlineById.get(state.trackId) ?? trackStageById.get(state.trackId) ?? state.hypothesis;
+function summarizeSubagent(state: SubagentState): string {
+  return subagentHeadlineById.get(state.subagentId) ?? subagentStageById.get(state.subagentId) ?? state.hypothesis;
 }
 
 function getSessionHealth(): { label: string; tone: "" | "warning" | "error" } {
@@ -490,14 +490,14 @@ function resetRuntimeState(): void {
   sessionStartedAt = null;
   activeSessionStatus = "idle";
   currentStates = [];
-  trackHeadlineById.clear();
-  trackStageById.clear();
+  subagentHeadlineById.clear();
+  subagentStageById.clear();
   sessionInputTokens = 0;
   sessionOutputTokens = 0;
   sessionCacheReadTokens = 0;
   sessionCacheWriteTokens = 0;
-  trackTokensById.clear();
-  selectedTrackId = null;
+  subagentTokensById.clear();
+  selectedSubagentId = null;
   subView = "steps";
   toolsFilterType = "all";
   toolsFilterOutcomes = new Set(["ok", "error", "pending"]);
@@ -505,16 +505,16 @@ function resetRuntimeState(): void {
   clearLiveIteration();
   document.body.classList.remove("session-live");
   resetSessionActionButtons();
-  // Ensure correct panel visibility for "All Tracks" default state
-  tracksOverview.classList.remove("hidden");
-  trackDetail.classList.add("hidden");
+  // Ensure correct panel visibility for "All Subagents" default state
+  subagentsOverview.classList.remove("hidden");
+  subagentDetail.classList.add("hidden");
   debugPanelNew.classList.add("hidden");
   debugToggleBtn.classList.remove("active");
-  trackTokenStats.classList.add("hidden");
+  subagentTokenStats.classList.add("hidden");
   renderSessionSummary();
-  renderTrackSidebar();
+  renderSubagentSidebar();
   renderActionBanner();
-  renderTracksOverview();
+  renderSubagentsOverview();
   timelineIterations.innerHTML = "";
 }
 
@@ -529,7 +529,7 @@ function renderSessionSummary(): void {
   runtimeHealthLabel.textContent = health.label;
 }
 
-// ── Token tracking ────────────────────────────────────────────────────────────
+// ── Token accounting ────────────────────────────────────────────────────────────
 
 const PRICE_TABLE: Record<string, { input: number; output: number; cacheRead: number }> = {
   "claude-sonnet": { input: 3, output: 15, cacheRead: 0.3 },
@@ -549,8 +549,8 @@ function estimateCost(inputTok: number, outputTok: number, cacheReadTok: number,
 }
 
 function accumulateTokens(turn: AgentTurnInfo): void {
-  const existing = trackTokensById.get(turn.trackId) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  trackTokensById.set(turn.trackId, {
+  const existing = subagentTokensById.get(turn.subagentId) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  subagentTokensById.set(turn.subagentId, {
     input: existing.input + turn.inputTokens,
     output: existing.output + turn.outputTokens,
     cacheRead: existing.cacheRead + turn.cacheReadTokens,
@@ -567,19 +567,19 @@ function accumulateTokens(turn: AgentTurnInfo): void {
     sessionCost.style.display = "";
   }
 
-  if (selectedTrackId === turn.trackId) renderTrackTokenStats(turn.trackId);
-  renderTrackSidebar();
+  if (selectedSubagentId === turn.subagentId) renderSubagentTokenStats(turn.subagentId);
+  renderSubagentSidebar();
 }
 
-function renderTrackTokenStats(trackId: string): void {
-  const toks = trackTokensById.get(trackId);
+function renderSubagentTokenStats(subagentId: string): void {
+  const toks = subagentTokensById.get(subagentId);
   if (!toks || (toks.input + toks.output) === 0) {
-    trackTokenStats.classList.add("hidden");
+    subagentTokenStats.classList.add("hidden");
     return;
   }
   const costStr = estimateCost(toks.input, toks.output, toks.cacheRead, activeSessionModel);
-  trackTokenStats.classList.remove("hidden");
-  trackTokenStats.innerHTML = `
+  subagentTokenStats.classList.remove("hidden");
+  subagentTokenStats.innerHTML = `
     <span><strong>${fmtNum(toks.input)}</strong> in</span>
     <span><strong>${fmtNum(toks.output)}</strong> out</span>
     ${toks.cacheRead > 0 ? `<span><strong>${fmtNum(toks.cacheRead)}</strong> cache read</span>` : ""}
@@ -588,87 +588,87 @@ function renderTrackTokenStats(trackId: string): void {
   `;
 }
 
-// ── Track sidebar ─────────────────────────────────────────────────────────────
+// ── Subagent sidebar ─────────────────────────────────────────────────────────────
 
-function renderTracksContainer(): void {
+function renderSubagentsContainer(): void {
   if (currentStates.length === 0 && activeSessionStatus !== "crashed" && activeSessionStatus !== "failed") {
-    tracksContainer.innerHTML = `<p style="font-size:12px;color:var(--muted)">No active session</p>`;
+    subagentsContainer.innerHTML = `<p style="font-size:12px;color:var(--muted)">No active session</p>`;
     return;
   }
-  tracksContainer.innerHTML = "";
-  const allTracks = [
-    { trackId: "orchestrator", status: activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running", headline: sessionHeadlineText },
-    ...currentStates.map((s) => ({ trackId: s.trackId, status: s.status, headline: trackHeadlineById.get(s.trackId) ?? s.hypothesis })),
+  subagentsContainer.innerHTML = "";
+  const allSubagents = [
+    { subagentId: "orchestrator", status: activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running", headline: sessionHeadlineText },
+    ...currentStates.map((s) => ({ subagentId: s.subagentId, status: s.status, headline: subagentHeadlineById.get(s.subagentId) ?? s.hypothesis })),
   ];
-  for (const { trackId, status, headline } of allTracks) {
+  for (const { subagentId, status, headline } of allSubagents) {
     const card = document.createElement("div");
-    card.className = "track-mini-card";
-    card.innerHTML = `<span class="status-dot ${status}" style="flex-shrink:0"></span><div style="min-width:0"><div style="font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${trackId}</div><div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${headline}</div></div><span class="track-status-badge ${status}" style="font-size:10px;flex-shrink:0">${status}</span>`;
-    tracksContainer.appendChild(card);
+    card.className = "subagent-mini-card";
+    card.innerHTML = `<span class="status-dot ${status}" style="flex-shrink:0"></span><div style="min-width:0"><div style="font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${subagentId}</div><div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${headline}</div></div><span class="subagent-status-badge ${status}" style="font-size:10px;flex-shrink:0">${status}</span>`;
+    subagentsContainer.appendChild(card);
   }
 }
 
-function renderTrackSidebar(): void {
-  renderTracksContainer();
-  sidebarTrackList.innerHTML = "";
+function renderSubagentSidebar(): void {
+  renderSubagentsContainer();
+  sidebarSubagentList.innerHTML = "";
 
-  // "All Tracks" entry
+  // "All Subagents" entry
   const allItem = document.createElement("div");
-  allItem.className = `sidebar-track-item ${selectedTrackId === null ? "active" : ""}`;
+  allItem.className = `sidebar-subagent-item ${selectedSubagentId === null ? "active" : ""}`;
   const allDot = document.createElement("span");
   allDot.className = `status-dot ${activeSessionStatus === "running" ? "running" : activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : ""}`;
   const allBody = document.createElement("div");
-  allBody.className = "sidebar-track-body";
-  allBody.innerHTML = `<div class="sidebar-track-name">All Tracks</div><div class="sidebar-track-stage">${currentStates.length} track${currentStates.length === 1 ? "" : "s"}</div>`;
+  allBody.className = "sidebar-subagent-body";
+  allBody.innerHTML = `<div class="sidebar-subagent-name">All Subagents</div><div class="sidebar-subagent-stage">${currentStates.length} subagent${currentStates.length === 1 ? "" : "s"}</div>`;
   allItem.append(allDot, allBody);
-  allItem.addEventListener("click", () => void setSelectedTrack(null));
-  sidebarTrackList.appendChild(allItem);
+  allItem.addEventListener("click", () => void setSelectedSubagent(null));
+  sidebarSubagentList.appendChild(allItem);
 
   const divider = document.createElement("div");
   divider.className = "sidebar-divider";
-  sidebarTrackList.appendChild(divider);
+  sidebarSubagentList.appendChild(divider);
 
   // Orchestrator (always shown)
   const orchStatus = activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running";
-  sidebarTrackList.appendChild(buildSidebarItem("orchestrator", orchStatus, sessionHeadlineText));
+  sidebarSubagentList.appendChild(buildSidebarItem("orchestrator", orchStatus, sessionHeadlineText));
 
-  // Researcher tracks
+  // Researcher subagents
   for (const state of currentStates) {
-    const item = buildSidebarItem(state.trackId, state.status, trackStageById.get(state.trackId) ?? state.hypothesis);
-    sidebarTrackList.appendChild(item);
+    const item = buildSidebarItem(state.subagentId, state.status, subagentStageById.get(state.subagentId) ?? state.hypothesis);
+    sidebarSubagentList.appendChild(item);
   }
 }
 
-function buildSidebarItem(trackId: string, status: string, stageSummary: string): HTMLElement {
+function buildSidebarItem(subagentId: string, status: string, stageSummary: string): HTMLElement {
   const item = document.createElement("div");
-  item.className = `sidebar-track-item ${selectedTrackId === trackId ? "active" : ""}`;
+  item.className = `sidebar-subagent-item ${selectedSubagentId === subagentId ? "active" : ""}`;
 
   const dot = document.createElement("span");
   dot.className = `status-dot ${status}`;
 
   const body = document.createElement("div");
-  body.className = "sidebar-track-body";
+  body.className = "sidebar-subagent-body";
 
   const nameEl = document.createElement("div");
-  nameEl.className = "sidebar-track-name";
-  nameEl.textContent = humanizeTrackTitle(trackId);
+  nameEl.className = "sidebar-subagent-name";
+  nameEl.textContent = humanizeSubagentTitle(subagentId);
 
   const stageEl = document.createElement("div");
-  stageEl.className = "sidebar-track-stage";
+  stageEl.className = "sidebar-subagent-stage";
   stageEl.textContent = stageSummary.slice(0, 60);
 
   const footer = document.createElement("div");
-  footer.className = "sidebar-track-footer";
+  footer.className = "sidebar-subagent-footer";
 
   const statusEl = document.createElement("span");
-  statusEl.className = `sidebar-track-status ${status}`;
+  statusEl.className = `sidebar-subagent-status ${status}`;
   statusEl.textContent = status;
 
-  const toks = trackTokensById.get(trackId);
+  const toks = subagentTokensById.get(subagentId);
   const totalTok = toks ? toks.input + toks.output : 0;
   if (totalTok > 0) {
     const tokEl = document.createElement("span");
-    tokEl.className = "sidebar-track-tokens";
+    tokEl.className = "sidebar-subagent-tokens";
     tokEl.textContent = totalTok >= 1000 ? `${(totalTok / 1000).toFixed(1)}k tok` : `${totalTok} tok`;
     footer.append(statusEl, tokEl);
   } else {
@@ -677,42 +677,42 @@ function buildSidebarItem(trackId: string, status: string, stageSummary: string)
 
   body.append(nameEl, stageEl, footer);
   item.append(dot, body);
-  item.addEventListener("click", () => void setSelectedTrack(trackId));
+  item.addEventListener("click", () => void setSelectedSubagent(subagentId));
   return item;
 }
 
-// ── Track selection ───────────────────────────────────────────────────────────
+// ── Subagent selection ───────────────────────────────────────────────────────────
 
-async function setSelectedTrack(trackId: string | null): Promise<void> {
-  selectedTrackId = trackId;
-  renderTrackSidebar();
+async function setSelectedSubagent(subagentId: string | null): Promise<void> {
+  selectedSubagentId = subagentId;
+  renderSubagentSidebar();
 
-  if (trackId === null) {
-    // Show "All Tracks" overview
-    tracksOverview.classList.remove("hidden");
-    trackDetail.classList.add("hidden");
-    renderTracksOverview();
+  if (subagentId === null) {
+    // Show "All Subagents" overview
+    subagentsOverview.classList.remove("hidden");
+    subagentDetail.classList.add("hidden");
+    renderSubagentsOverview();
   } else {
-    // Show per-track detail
-    tracksOverview.classList.add("hidden");
-    trackDetail.classList.remove("hidden");
+    // Show per-subagent detail
+    subagentsOverview.classList.add("hidden");
+    subagentDetail.classList.remove("hidden");
     subView = "steps";
     toolsFilterType = "all";
     toolsTypeLabel.textContent = "All tools";
     toolsFilterOutcomes = new Set(["ok", "error", "pending"]);
     document.querySelectorAll<HTMLButtonElement>(".tools-outcome-toggle").forEach((b) => b.classList.add("active"));
     setSubView("steps");
-    renderTrackTokenStats(trackId);
+    renderSubagentTokenStats(subagentId);
     timelineIterations.innerHTML = "";
     clearLiveIteration();
     if (activeSessionId) {
-      const turns = await api.getAgentActivity(activeSessionId, trackId);
-      renderUnifiedTimeline(trackId, turns);
+      const turns = await api.getAgentActivity(activeSessionId, subagentId);
+      renderUnifiedTimeline(subagentId, turns);
     }
     // Sync for progress log
-    activeTrackId = trackId;
+    activeSubagentId = subagentId;
     if (activeSessionStateDir) {
-      const path = `${activeSessionStateDir}/research/${trackId}/progress.md`;
+      const path = `${activeSessionStateDir}/subagents/${subagentId}/progress.md`;
       const content = await api.readFile(path);
       if (content !== null) {
         progressLog.textContent = content;
@@ -729,11 +729,11 @@ function setSubView(view: "steps" | "files" | "tools"): void {
   stepsPanel.classList.toggle("hidden", view !== "steps");
   filesPanel.classList.toggle("hidden", view !== "files");
   toolsPanel.style.display = view === "tools" ? "flex" : "none";
-  if (view === "files" && selectedTrackId) {
-    void loadTrackFiles(selectedTrackId);
+  if (view === "files" && selectedSubagentId) {
+    void loadSubagentFiles(selectedSubagentId);
   }
-  if (view === "tools" && selectedTrackId && activeSessionId) {
-    void loadToolsPanel(selectedTrackId);
+  if (view === "tools" && selectedSubagentId && activeSessionId) {
+    void loadToolsPanel(selectedSubagentId);
   }
 }
 
@@ -741,54 +741,54 @@ function toggleDebugMode(): void {
   debugMode = !debugMode;
   debugToggleBtn.classList.toggle("active", debugMode);
   debugPanelNew.classList.toggle("hidden", !debugMode);
-  trackDetail.classList.toggle("hidden", debugMode || selectedTrackId === null);
-  tracksOverview.classList.toggle("hidden", debugMode || selectedTrackId !== null);
+  subagentDetail.classList.toggle("hidden", debugMode || selectedSubagentId === null);
+  subagentsOverview.classList.toggle("hidden", debugMode || selectedSubagentId !== null);
 }
 
-// ── Tracks overview (All Tracks view) ────────────────────────────────────────
+// ── Subagents overview (All Subagents view) ────────────────────────────────────────
 
-function renderTracksOverview(): void {
-  tracksOverview.innerHTML = "";
+function renderSubagentsOverview(): void {
+  subagentsOverview.innerHTML = "";
 
   // Orchestrator card
-  const orchCard = buildTrackOverviewCard("orchestrator", activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running", sessionHeadlineText);
-  tracksOverview.appendChild(orchCard);
+  const orchCard = buildSubagentOverviewCard("orchestrator", activeSessionStatus === "crashed" || activeSessionStatus === "failed" ? "blocked" : "running", sessionHeadlineText);
+  subagentsOverview.appendChild(orchCard);
 
   for (const state of currentStates) {
-    const card = buildTrackOverviewCard(state.trackId, state.status, trackStageById.get(state.trackId) ?? state.hypothesis, state.updatedAt);
-    tracksOverview.appendChild(card);
+    const card = buildSubagentOverviewCard(state.subagentId, state.status, subagentStageById.get(state.subagentId) ?? state.hypothesis, state.updatedAt);
+    subagentsOverview.appendChild(card);
   }
 
   if (currentStates.length === 0) {
     const msg = document.createElement("p");
     msg.style.cssText = "grid-column:1/-1; padding:12px; font-size:12px; color:var(--muted)";
-    msg.textContent = "Researcher tracks will appear here as the orchestrator creates them.";
-    tracksOverview.appendChild(msg);
+    msg.textContent = "Researcher subagents will appear here as the orchestrator creates them.";
+    subagentsOverview.appendChild(msg);
   }
 }
 
-function buildTrackOverviewCard(trackId: string, status: string, stageSummary: string, updatedAt?: string): HTMLElement {
-  const toks = trackTokensById.get(trackId);
+function buildSubagentOverviewCard(subagentId: string, status: string, stageSummary: string, updatedAt?: string): HTMLElement {
+  const toks = subagentTokensById.get(subagentId);
   const totalTok = toks ? toks.input + toks.output : 0;
   const tokStr = totalTok > 0 ? `${totalTok >= 1000 ? (totalTok / 1000).toFixed(1) + "k" : totalTok} tok` : "";
 
   const card = document.createElement("article");
-  card.className = "track-overview-card";
+  card.className = "subagent-overview-card";
   card.innerHTML = `
-    <div class="track-overview-top">
+    <div class="subagent-overview-top">
       <div>
-        <h4>${escHtml(humanizeTrackTitle(trackId))}</h4>
+        <h4>${escHtml(humanizeSubagentTitle(subagentId))}</h4>
         <p>${escHtml(stageSummary.slice(0, 80))}</p>
       </div>
-      <div class="track-status-pill ${status}">${status}</div>
+      <div class="subagent-status-pill ${status}">${status}</div>
     </div>
-    <div class="track-overview-meta">
+    <div class="subagent-overview-meta">
       ${updatedAt ? `<span>Updated ${formatRelativeTime(updatedAt)}</span>` : ""}
       ${tokStr ? `<span>${tokStr}</span>` : ""}
-      <span>${escHtml(trackId)}</span>
+      <span>${escHtml(subagentId)}</span>
     </div>
   `;
-  card.addEventListener("click", () => void setSelectedTrack(trackId));
+  card.addEventListener("click", () => void setSelectedSubagent(subagentId));
   return card;
 }
 
@@ -813,7 +813,7 @@ function renderActionBanner(): void {
     });
     actionBanner.querySelector("#banner-deny")?.addEventListener("click", async () => {
       if (!pendingInstall) return;
-      await api.resolveInstall(pendingInstall.trackId, false, pendingInstall);
+      await api.resolveInstall(pendingInstall.subagentId, false, pendingInstall);
       pendingInstall = null;
       renderActionBanner();
     });
@@ -851,17 +851,17 @@ function applyRuntimeEvent(event: RuntimeEvent): void {
     sessionLastUpdated = event.timestamp;
   }
 
-  if (event.trackId) {
-    trackHeadlineById.set(event.trackId, event.title);
+  if (event.subagentId) {
+    subagentHeadlineById.set(event.subagentId, event.title);
     if (event.stage) {
-      trackStageById.set(event.trackId, event.stage);
+      subagentStageById.set(event.subagentId, event.stage);
     }
   }
 
   renderSessionSummary();
-  renderTrackSidebar();
+  renderSubagentSidebar();
   renderActionBanner();
-  if (selectedTrackId === null) renderTracksOverview();
+  if (selectedSubagentId === null) renderSubagentsOverview();
 }
 
 type DropdownController = {
@@ -1286,14 +1286,14 @@ function renderSessionList(sessions: SessionInfo[]): void {
     title.textContent = s.target;
 
     const badge = document.createElement("span");
-    badge.className = `track-status-pill ${sessionStatusBadge(s.status)}`;
+    badge.className = `subagent-status-pill ${sessionStatusBadge(s.status)}`;
     badge.textContent = s.status;
 
     titleRow.append(title, badge);
 
     const meta = document.createElement("div");
     meta.style.cssText = "font-size:11px; color:var(--muted)";
-    meta.textContent = `${s.trackCount} track${s.trackCount === 1 ? "" : "s"} · ${s.model} · ${formatSessionDate(s.createdAt)}`;
+    meta.textContent = `${s.subagentCount} subagent${s.subagentCount === 1 ? "" : "s"} · ${s.model} · ${formatSessionDate(s.createdAt)}`;
 
     body.append(titleRow, meta);
 
@@ -1362,9 +1362,9 @@ async function openSession(s: SessionInfo): Promise<void> {
   resetRuntimeState();
   document.body.classList.add("session-live");
   applySessionActionButtons(s.status);
-  activeTrackId = "orchestrator";
+  activeSubagentId = "orchestrator";
   activeTitle.textContent = s.target;
-  sessionMaxTracksInput.value = String(s.maxTracks ?? 6);
+  sessionMaxSubagentsInput.value = String(s.maxSubagents ?? 6);
   runtimeTarget.textContent = s.target;
   runtimeModel.textContent = s.model;
   runtimeBoxer.textContent = s.boxerUrl;
@@ -1384,8 +1384,8 @@ async function openSession(s: SessionInfo): Promise<void> {
     const states = await api.getProgress(s.id);
     currentStates = states;
     renderSessionSummary();
-    renderTrackSidebar();
-    if (selectedTrackId === null) renderTracksOverview();
+    renderSubagentSidebar();
+    if (selectedSubagentId === null) renderSubagentsOverview();
   }
 }
 
@@ -1396,13 +1396,13 @@ async function replaySessionEvents(sessionId: string): Promise<void> {
       const runtimeEvent: RuntimeEvent = {
         id: e.id,
         timestamp: e.createdAt,
-        scope: (e.trackId ? "track" : "session") as RuntimeEvent["scope"],
+        scope: (e.subagentId ? "subagent" : "session") as RuntimeEvent["scope"],
         kind: e.kind as RuntimeEvent["kind"],
         severity: e.severity as RuntimeEvent["severity"],
         title: e.title,
         detail: e.detail,
         stage: e.stage,
-        trackId: e.trackId,
+        subagentId: e.subagentId,
         status: e.status as RuntimeEvent["status"],
       };
       applyRuntimeEvent(runtimeEvent);
@@ -1437,7 +1437,7 @@ backToSessionsBtn.addEventListener("click", async () => {
   activeSessionId = null;
   activeSessionStateDir = null;
   activeSessionModel = "";
-  activeTrackId = null;
+  activeSubagentId = null;
   resetRuntimeState();
   runtimeSessionCard.classList.add("hidden");
   setSessionConfigLocked(false);
@@ -1467,9 +1467,9 @@ stopSessionBtn.addEventListener("click", async () => {
   pendingInstall = null;
   applySessionActionButtons("crashed");
   renderSessionSummary();
-  renderTrackSidebar();
+  renderSubagentSidebar();
   renderActionBanner();
-  if (selectedTrackId === null) renderTracksOverview();
+  if (selectedSubagentId === null) renderSubagentsOverview();
 });
 
 resumeSessionBtn.addEventListener("click", async () => {
@@ -1491,19 +1491,19 @@ resumeSessionBtn.addEventListener("click", async () => {
   pendingInstall = null;
   applySessionActionButtons("running");
   renderSessionSummary();
-  renderTrackSidebar();
+  renderSubagentSidebar();
   renderActionBanner();
-  if (selectedTrackId === null) renderTracksOverview();
+  if (selectedSubagentId === null) renderSubagentsOverview();
   startPolling();
 });
 
 void initSessionsView();
 
-sessionMaxTracksInput.addEventListener("change", () => {
+sessionMaxSubagentsInput.addEventListener("change", () => {
   if (!activeSessionId) return;
-  const v = Math.max(1, Math.min(20, parseInt(sessionMaxTracksInput.value, 10) || 6));
-  sessionMaxTracksInput.value = String(v);
-  void api.setMaxTracks(activeSessionId, v);
+  const v = Math.max(1, Math.min(20, parseInt(sessionMaxSubagentsInput.value, 10) || 6));
+  sessionMaxSubagentsInput.value = String(v);
+  void api.setMaxSubagents(activeSessionId, v);
 });
 
 stepsTab.addEventListener("click", () => setSubView("steps"));
@@ -1525,7 +1525,7 @@ document.querySelectorAll<HTMLButtonElement>(".tools-outcome-toggle").forEach((b
       toolsFilterOutcomes.add(outcome);
       btn.classList.add("active");
     }
-    if (selectedTrackId && activeSessionId) void loadToolsPanel(selectedTrackId);
+    if (selectedSubagentId && activeSessionId) void loadToolsPanel(selectedSubagentId);
   });
 });
 debugToggleBtn.addEventListener("click", () => toggleDebugMode());
@@ -1619,8 +1619,8 @@ el("pick-code").addEventListener("click", async () => {
   if (path) el<HTMLInputElement>("code-path").value = path;
 });
 
-maxTracksInput.addEventListener("input", () => {
-  maxTracksLabel.textContent = maxTracksInput.value;
+maxSubagentsInput.addEventListener("input", () => {
+  maxSubagentsLabel.textContent = maxSubagentsInput.value;
 });
 
 startBtn.addEventListener("click", async () => {
@@ -1664,7 +1664,7 @@ startBtn.addEventListener("click", async () => {
   sessionsView.style.display = "none";
   document.body.classList.add("session-live");
   applySessionActionButtons("running");
-  activeTrackId = "orchestrator";
+  activeSubagentId = "orchestrator";
   activeTitle.textContent = "orchestrator";
   progressLog.textContent = "";
   runtimeTarget.textContent = target;
@@ -1673,9 +1673,9 @@ startBtn.addEventListener("click", async () => {
   runtimeHealthLabel.textContent = "Preparing";
   runtimeSessionCard.classList.remove("hidden");
 
-  const maxTracks = parseInt(maxTracksInput.value, 10) || 6;
-  sessionMaxTracksInput.value = String(maxTracks);
-  const result = await api.startResearch(briefPath, boxerUrl, model, maxTracks);
+  const maxSubagents = parseInt(maxSubagentsInput.value, 10) || 6;
+  sessionMaxSubagentsInput.value = String(maxSubagents);
+  const result = await api.startResearch(briefPath, boxerUrl, model, maxSubagents);
   if (result.sessionId) {
     activeSessionId = result.sessionId;
     activeSessionStateDir = await api.getSessionStateDir(result.sessionId);
@@ -1701,13 +1701,13 @@ async function poll(): Promise<void> {
 
   currentStates = states;
   renderSessionSummary();
-  renderTrackSidebar();
+  renderSubagentSidebar();
   renderActionBanner();
-  if (selectedTrackId === null) renderTracksOverview();
+  if (selectedSubagentId === null) renderSubagentsOverview();
 
   // Re-read progress log when debug mode active
-  if (debugMode && activeTrackId && activeSessionStateDir) {
-    const path = `${activeSessionStateDir}/research/${activeTrackId}/progress.md`;
+  if (debugMode && activeSubagentId && activeSessionStateDir) {
+    const path = `${activeSessionStateDir}/subagents/${activeSubagentId}/progress.md`;
     const content = await api.readFile(path);
     if (content !== null && content !== progressLog.textContent) {
       progressLog.textContent = content;
@@ -1731,14 +1731,14 @@ function showPermissionPrompt(install: PendingInstall): void {
 
 permApprove.addEventListener("click", async () => {
   if (!pendingInstall) return;
-  await api.resolveInstall(pendingInstall.trackId, true, pendingInstall);
+  await api.resolveInstall(pendingInstall.subagentId, true, pendingInstall);
   pendingInstall = null;
   permissionOverlay.classList.add("hidden");
 });
 
 permDeny.addEventListener("click", async () => {
   if (!pendingInstall) return;
-  await api.resolveInstall(pendingInstall.trackId, false, pendingInstall);
+  await api.resolveInstall(pendingInstall.subagentId, false, pendingInstall);
   pendingInstall = null;
   permissionOverlay.classList.add("hidden");
 });
@@ -1779,7 +1779,7 @@ function ensureLiveIteration(): void {
   liveThinkingTextEl = streamText;
 }
 
-function renderUnifiedTimeline(trackId: string, turns: AgentTurnInfo[]): void {
+function renderUnifiedTimeline(subagentId: string, turns: AgentTurnInfo[]): void {
   if (turns.length === 0) {
     timelineIterations.innerHTML = '<div class="timeline-empty">No activity recorded yet. The agent will appear here once it starts working.</div>';
     return;
@@ -1909,26 +1909,26 @@ function renderUnifiedTimeline(trackId: string, turns: AgentTurnInfo[]): void {
 
 // ── Files panel ───────────────────────────────────────────────────────────────
 
-async function loadTrackFiles(trackId: string): Promise<void> {
+async function loadSubagentFiles(subagentId: string): Promise<void> {
   if (!activeSessionId) return;
   fileList.innerHTML = '<div class="file-empty">Loading files…</div>';
   fileViewer.classList.add("hidden");
   try {
-    const files = await api.listTrackFiles(activeSessionId, trackId);
+    const files = await api.listSubagentFiles(activeSessionId, subagentId);
     renderFileList(files);
   } catch {
     fileList.innerHTML = '<div class="file-empty">Could not load files.</div>';
   }
 }
 
-function renderFileList(files: TrackFileInfo[]): void {
+function renderFileList(files: SubagentFileInfo[]): void {
   fileList.innerHTML = "";
   if (files.length === 0) {
     fileList.innerHTML = '<div class="file-empty">No files created yet.</div>';
     return;
   }
 
-  const groups = new Map<string, TrackFileInfo[]>();
+  const groups = new Map<string, SubagentFileInfo[]>();
   for (const f of files) {
     const parts = f.relativePath.split("/");
     const dir = parts.slice(0, -1).join("/") || ".";
@@ -1963,10 +1963,10 @@ function renderFileList(files: TrackFileInfo[]): void {
 
 // ── Tools panel ──────────────────────────────────────────────────────────────
 
-async function loadToolsPanel(trackId: string): Promise<void> {
+async function loadToolsPanel(subagentId: string): Promise<void> {
   if (!activeSessionId) return;
   toolsList.innerHTML = '<div class="timeline-empty">Loading…</div>';
-  const turns = await api.getAgentActivity(activeSessionId, trackId);
+  const turns = await api.getAgentActivity(activeSessionId, subagentId);
   renderToolsPanel(turns);
 }
 
@@ -1983,7 +1983,7 @@ function buildToolsTypeDropdown(toolNames: string[]): void {
       toolsTypeLabel.textContent = name === "all" ? "All tools" : name;
       toolsTypeMenu.classList.add("hidden");
       toolsTypeDropdown.classList.remove("open");
-      if (selectedTrackId && activeSessionId) void loadToolsPanel(selectedTrackId);
+      if (selectedSubagentId && activeSessionId) void loadToolsPanel(selectedSubagentId);
     });
     toolsTypeMenu.appendChild(btn);
   }
@@ -2055,7 +2055,7 @@ function renderToolsPanel(turns: AgentTurnInfo[]): void {
   }
 }
 
-async function openFileView(file: TrackFileInfo): Promise<void> {
+async function openFileView(file: SubagentFileInfo): Promise<void> {
   const content = await api.readFile(file.path);
   if (content === null) return;
   fileViewer.classList.remove("hidden");
@@ -2072,9 +2072,9 @@ async function openFileView(file: TrackFileInfo): Promise<void> {
   fileViewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function agentRole(trackId: string): string {
-  if (trackId === "orchestrator") return "orchestrator";
-  if (trackId === "reporter") return "reporter";
+function agentRole(subagentId: string): string {
+  if (subagentId === "orchestrator") return "orchestrator";
+  if (subagentId === "reporter") return "reporter";
   return "researcher";
 }
 
@@ -2117,8 +2117,8 @@ function escHtml(s: string): string {
 }
 
 // ── Live streaming: append text chunks as they arrive from the agent ──────────
-api.onResearchLog((trackId: string, text: string) => {
-  if (trackId === activeTrackId) {
+api.onResearchLog((subagentId: string, text: string) => {
+  if (subagentId === activeSubagentId) {
     progressLog.textContent = (progressLog.textContent ?? "") + text;
     progressLog.scrollTop = progressLog.scrollHeight;
   }
@@ -2145,7 +2145,7 @@ api.onRuntimeEvent((event: RuntimeEvent) => {
 };
 
 api.onAgentThinking((event: AgentThinkingEvent) => {
-  if (event.trackId !== selectedTrackId) return;
+  if (event.subagentId !== selectedSubagentId) return;
   if (subView !== "steps") return;
   ensureLiveIteration();
   if (liveThinkingStreamEl) liveThinkingStreamEl.classList.remove("hidden");
@@ -2158,13 +2158,13 @@ api.onAgentThinking((event: AgentThinkingEvent) => {
 api.onAgentTurn((event: AgentTurnEvent) => {
   accumulateTokens(event.turn);
   clearLiveIteration();
-  if (event.trackId === selectedTrackId && activeSessionId) {
+  if (event.subagentId === selectedSubagentId && activeSessionId) {
     if (subView === "steps") {
-      void api.getAgentActivity(activeSessionId, event.trackId).then((turns) => {
-        renderUnifiedTimeline(event.trackId, turns);
+      void api.getAgentActivity(activeSessionId, event.subagentId).then((turns) => {
+        renderUnifiedTimeline(event.subagentId, turns);
       });
     } else if (subView === "tools") {
-      void api.getAgentActivity(activeSessionId, event.trackId).then((turns) => {
+      void api.getAgentActivity(activeSessionId, event.subagentId).then((turns) => {
         renderToolsPanel(turns);
       });
     }
@@ -2206,18 +2206,18 @@ api.onResearchError((err: string) => {
     sessionLastUpdated = new Date().toISOString();
     const now = new Date().toISOString();
     currentStates = [{
-      trackId: "orchestrator",
+      subagentId: "orchestrator",
       status: "blocked",
       hypothesis: "Research session stopped",
       startedAt: now,
       updatedAt: now,
     }];
-    trackHeadlineById.set("orchestrator", "Research session stopped");
+    subagentHeadlineById.set("orchestrator", "Research session stopped");
     pendingInstall = null;
     applySessionActionButtons("crashed");
-    renderTrackSidebar();
+    renderSubagentSidebar();
     renderSessionSummary();
-    renderTracksOverview();
+    renderSubagentsOverview();
     renderActionBanner();
   },
 };

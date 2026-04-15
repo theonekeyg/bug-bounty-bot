@@ -10,25 +10,25 @@ import type { AgentTurnInfo } from "../types/activity.js";
 export type { RuntimeEventInput };
 
 export interface ResearchLogEvent {
-  trackId: string;
+  subagentId: string;
   text: string;
 }
 
 export interface AgentThinkingEvent {
   sessionId: string;
-  trackId: string;
+  subagentId: string;
   thinking: string; // streaming delta chunk
 }
 
 export interface AgentTurnEvent {
   sessionId: string;
-  trackId: string;
+  subagentId: string;
   turn: AgentTurnInfo;
 }
 
 export interface AgentToolProgressEvent {
   sessionId: string;
-  trackId: string;
+  subagentId: string;
   toolUseId: string;
   toolName: string;
   elapsedSec: number;

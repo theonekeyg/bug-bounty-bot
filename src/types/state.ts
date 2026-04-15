@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TrackStatusSchema = z.enum([
+export const SubagentStatusSchema = z.enum([
   "running",
   "found",
   "disproven",
@@ -8,21 +8,21 @@ export const TrackStatusSchema = z.enum([
   "awaiting_permission",
 ]);
 
-export type TrackStatus = z.infer<typeof TrackStatusSchema>;
+export type SubagentStatus = z.infer<typeof SubagentStatusSchema>;
 
-export const TrackStateSchema = z.object({
-  trackId: z.string(),
-  status: TrackStatusSchema,
+export const SubagentStateSchema = z.object({
+  subagentId: z.string(),
+  status: SubagentStatusSchema,
   hypothesis: z.string(),
   workspaceId: z.string().optional(), // Boxer workspace ID
   startedAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
-export type TrackState = z.infer<typeof TrackStateSchema>;
+export type SubagentState = z.infer<typeof SubagentStateSchema>;
 
 export const PendingInstallSchema = z.object({
-  trackId: z.string(),
+  subagentId: z.string(),
   packages: z.array(z.string()),
   justification: z.string(),
   installType: z.enum(["npm", "system", "pip", "custom"]),
@@ -33,7 +33,7 @@ export type PendingInstall = z.infer<typeof PendingInstallSchema>;
 
 export const CommandLogEntrySchema = z.object({
   timestamp: z.string().datetime(),
-  trackId: z.string(),
+  subagentId: z.string(),
   cwd: z.string(),
   command: z.string(),
   exitCode: z.number().nullable(),

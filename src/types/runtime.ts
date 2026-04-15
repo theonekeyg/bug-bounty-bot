@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { TrackStatusSchema } from "./state.js";
+import { SubagentStatusSchema } from "./state.js";
 
-export const RuntimeEventScopeSchema = z.enum(["session", "track"]);
+export const RuntimeEventScopeSchema = z.enum(["session", "subagent"]);
 export type RuntimeEventScope = z.infer<typeof RuntimeEventScopeSchema>;
 
 export const RuntimeEventSeveritySchema = z.enum(["info", "success", "warning", "error"]);
@@ -11,8 +11,8 @@ export const RuntimeEventKindSchema = z.enum([
   "session_started",
   "stage_changed",
   "heartbeat",
-  "track_created",
-  "track_status_changed",
+  "subagent_created",
+  "subagent_status_changed",
   "waiting",
   "retrying",
   "permission_required",
@@ -30,8 +30,8 @@ export const RuntimeEventSchema = z.object({
   title: z.string(),
   detail: z.string().optional(),
   stage: z.string().optional(),
-  trackId: z.string().optional(),
-  status: TrackStatusSchema.optional(),
+  subagentId: z.string().optional(),
+  status: SubagentStatusSchema.optional(),
 });
 export type RuntimeEvent = z.infer<typeof RuntimeEventSchema>;
 

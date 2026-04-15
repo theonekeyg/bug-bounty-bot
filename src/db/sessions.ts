@@ -1,5 +1,5 @@
 /**
- * Session, Track, and EventRecord CRUD operations.
+ * Session, Subagent, and EventRecord CRUD operations.
  */
 
 import { getDb } from "./client.js";
@@ -15,10 +15,10 @@ export interface SessionInfo {
   briefPath: string;
   briefContent: string;
   boxerUrl: string;
-  maxTracks: number;
+  maxSubagents: number;
   createdAt: string;
   completedAt: string | null;
-  trackCount: number;
+  subagentCount: number;
 }
 
 // ── Session ───────────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ export async function createSession(input: {
   briefContent: string;
   model: string;
   boxerUrl: string;
-  maxTracks: number;
+  maxSubagents: number;
 }): Promise<string> {
   const db = getDb();
   const session = await db.session.create({
@@ -39,16 +39,16 @@ export async function createSession(input: {
       briefContent: input.briefContent,
       model: input.model,
       boxerUrl: input.boxerUrl,
-      maxTracks: input.maxTracks,
+      maxSubagents: input.maxSubagents,
       status: "running",
     },
   });
   return session.id;
 }
 
-export async function updateSessionMaxTracks(id: string, maxTracks: number): Promise<void> {
+export async function updateSessionMaxSubagents(id: string, maxSubagents: number): Promise<void> {
   const db = getDb();
-  await db.session.update({ where: { id }, data: { maxTracks } });
+  await db.session.update({ where: { id }, data: { maxSubagents } });
 }
 
 export async function updateSessionStatus(
@@ -69,7 +69,7 @@ export async function listSessions(): Promise<SessionInfo[]> {
   const db = getDb();
   const sessions = await db.session.findMany({
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { tracks: true } } },
+    include: { _count: { select: { subagents: true } } },
   });
   return sessions.map((s) => ({
     id: s.id,
@@ -79,10 +79,10 @@ export async function listSessions(): Promise<SessionInfo[]> {
     briefPath: s.briefPath,
     briefContent: s.briefContent,
     boxerUrl: s.boxerUrl,
-    maxTracks: s.maxTracks,
+    maxSubagents: s.maxSubagents,
     createdAt: s.createdAt.toISOString(),
     completedAt: s.completedAt?.toISOString() ?? null,
-    trackCount: s._count.tracks,
+    subagentCount: s._count.subagents,
   }));
 }
 
@@ -90,7 +90,7 @@ export async function getSession(id: string): Promise<SessionInfo | null> {
   const db = getDb();
   const s = await db.session.findUnique({
     where: { id },
-    include: { _count: { select: { tracks: true } } },
+    include: { _count: { select: { subagents: true } } },
   });
   if (!s) return null;
   return {
@@ -101,10 +101,10 @@ export async function getSession(id: string): Promise<SessionInfo | null> {
     briefPath: s.briefPath,
     briefContent: s.briefContent,
     boxerUrl: s.boxerUrl,
-    maxTracks: s.maxTracks,
+    maxSubagents: s.maxSubagents,
     createdAt: s.createdAt.toISOString(),
     completedAt: s.completedAt?.toISOString() ?? null,
-    trackCount: s._count.tracks,
+    subagentCount: s._count.subagents,
   };
 }
 
@@ -120,9 +120,9 @@ export async function markCrashedSessions(): Promise<void> {
   });
 }
 
-// ── Track ─────────────────────────────────────────────────────────────────────
+// ── Subagent ─────────────────────────────────────────────────────────────────
 
-export async function upsertTrack(input: {
+export async function upsertSubagent(input: {
   id: string;
   sessionId: string;
   hypothesis: string;
@@ -130,7 +130,7 @@ export async function upsertTrack(input: {
   workspaceId?: string;
 }): Promise<void> {
   const db = getDb();
-  await db.track.upsert({
+  await db.subagent.upsert({
     where: { id: input.id },
     create: {
       id: input.id,
@@ -147,16 +147,16 @@ export async function upsertTrack(input: {
   });
 }
 
-export async function updateTrackInDb(
+export async function updateSubagentInDb(
   id: string,
   patch: { status?: string; workspaceId?: string; blockedReason?: string },
 ): Promise<void> {
   const db = getDb();
-  await db.track.update({ where: { id }, data: patch });
+  await db.subagent.update({ where: { id }, data: patch });
 }
 
-export async function getSessionTracks(sessionId: string) {
-  return getDb().track.findMany({ where: { sessionId } });
+export async function getSessionSubagents(sessionId: string) {
+  return getDb().subagent.findMany({ where: { sessionId } });
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -169,7 +169,7 @@ export async function appendSessionEvent(
   await db.eventRecord.create({
     data: {
       sessionId,
-      trackId: event.trackId ?? null,
+      subagentId: event.subagentId ?? null,
       kind: event.kind,
       severity: event.severity,
       title: event.title,
@@ -189,7 +189,7 @@ export async function getSessionEvents(sessionId: string) {
   return records.map((r) => ({
     id: r.id,
     sessionId: r.sessionId,
-    trackId: r.trackId ?? undefined,
+    subagentId: r.subagentId ?? undefined,
     kind: r.kind,
     severity: r.severity,
     title: r.title,

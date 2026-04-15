@@ -25,7 +25,7 @@ const NpmAuditInput = z.object({
 
 interface AnalysisToolOptions {
   boxer: BoxerClient;
-  trackId: string;
+  subagentId: string;
 }
 
 export function makeSemgrepTool(opts: AnalysisToolOptions): ToolDefinition<z.infer<typeof SemgrepInput>> {

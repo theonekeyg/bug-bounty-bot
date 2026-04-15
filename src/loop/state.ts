@@ -4,11 +4,11 @@
  * Never use raw fs calls in agents — use these helpers to keep state consistent.
  */
 
-import { readFile, writeFile, mkdir, appendFile, rm } from "fs/promises";
+import { readFile, writeFile, mkdir, appendFile, rm, rename, readdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { z } from "zod";
-import { TrackStateSchema, type TrackState, type TrackStatus } from "../types/index.js";
+import { SubagentStateSchema, type SubagentState, type SubagentStatus } from "../types/index.js";
 
 const SESSIONS_DIR = join("state", "sessions");
 const OUTPUT_BASE = join("output", "sessions");
@@ -23,41 +23,72 @@ export function sessionPaths(sessionId: string) {
     outputDir: () => out,
     planMd: () => join(base, "plan.md"),
     commandLog: () => join(base, "command_log.jsonl"),
-    trackDir: (trackId: string) => join(base, "research", trackId),
-    statusJson: (trackId: string) => join(base, "research", trackId, "status.json"),
-    hypothesisMd: (trackId: string) => join(base, "research", trackId, "hypothesis.md"),
-    progressMd: (trackId: string) => join(base, "research", trackId, "progress.md"),
-    findingsMd: (trackId: string) => join(base, "research", trackId, "findings.md"),
-    pendingInstall: (trackId: string) => join(base, "research", trackId, "pending_install.json"),
+    subagentDir: (subagentId: string) => join(base, "subagents", subagentId),
+    statusJson: (subagentId: string) => join(base, "subagents", subagentId, "status.json"),
+    hypothesisMd: (subagentId: string) => join(base, "subagents", subagentId, "hypothesis.md"),
+    progressMd: (subagentId: string) => join(base, "subagents", subagentId, "progress.md"),
+    findingsMd: (subagentId: string) => join(base, "subagents", subagentId, "findings.md"),
+    pendingInstall: (subagentId: string) => join(base, "subagents", subagentId, "pending_install.json"),
     reportMd: () => join(out, "report.md"),
     reproDir: (vulnId: string) => join(out, "repro", vulnId),
   };
 }
 
-// ── Track state ───────────────────────────────────────────────────────────────
+async function migrateLegacySubagentLayout(sessionId: string): Promise<void> {
+  const base = sessionPaths(sessionId).stateDir();
+  const oldDir = join(base, "research");
+  const newDir = join(base, "subagents");
 
-export async function readTrackState(sessionId: string, trackId: string): Promise<TrackState | null> {
-  const p = sessionPaths(sessionId).statusJson(trackId);
-  if (!existsSync(p)) return null;
-  const raw = await readFile(p, "utf-8");
-  return TrackStateSchema.parse(JSON.parse(raw));
+  if (!existsSync(oldDir)) return;
+
+  if (!existsSync(newDir)) {
+    await rename(oldDir, newDir);
+    return;
+  }
+
+  const entries = await readdir(oldDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const from = join(oldDir, entry.name);
+    const to = join(newDir, entry.name);
+    if (!existsSync(to)) {
+      await rename(from, to);
+    }
+  }
+
+  await rm(oldDir, { recursive: true, force: true });
 }
 
-export async function writeTrackState(sessionId: string, state: TrackState): Promise<void> {
-  const p = sessionPaths(sessionId).statusJson(state.trackId);
+async function ensureStateLayout(sessionId: string): Promise<void> {
+  await migrateLegacySubagentLayout(sessionId);
+}
+
+// ── Subagent state ────────────────────────────────────────────────────────────
+
+export async function readSubagentState(sessionId: string, subagentId: string): Promise<SubagentState | null> {
+  await ensureStateLayout(sessionId);
+  const p = sessionPaths(sessionId).statusJson(subagentId);
+  if (!existsSync(p)) return null;
+  const raw = await readFile(p, "utf-8");
+  return SubagentStateSchema.parse(JSON.parse(raw));
+}
+
+export async function writeSubagentState(sessionId: string, state: SubagentState): Promise<void> {
+  await ensureStateLayout(sessionId);
+  const p = sessionPaths(sessionId).statusJson(state.subagentId);
   await mkdir(dirname(p), { recursive: true });
-  const updated: TrackState = { ...state, updatedAt: new Date().toISOString() };
+  const updated: SubagentState = { ...state, updatedAt: new Date().toISOString() };
   await writeFile(p, JSON.stringify(updated, null, 2), "utf-8");
 }
 
-export async function updateTrackStatus(
+export async function updateSubagentStatus(
   sessionId: string,
-  trackId: string,
-  status: TrackStatus,
+  subagentId: string,
+  status: SubagentStatus,
 ): Promise<void> {
-  const current = await readTrackState(sessionId, trackId);
-  if (!current) throw new Error(`Track ${trackId} not found in session ${sessionId}`);
-  await writeTrackState(sessionId, { ...current, status });
+  const current = await readSubagentState(sessionId, subagentId);
+  if (!current) throw new Error(`Subagent ${subagentId} not found in session ${sessionId}`);
+  await writeSubagentState(sessionId, { ...current, status });
 }
 
 // ── Plan ──────────────────────────────────────────────────────────────────────
@@ -76,39 +107,41 @@ export async function writePlan(sessionId: string, content: string): Promise<voi
 
 // ── Progress log (append-only) ────────────────────────────────────────────────
 
-export async function appendProgress(sessionId: string, trackId: string, entry: string): Promise<void> {
-  const p = sessionPaths(sessionId).progressMd(trackId);
+export async function appendProgress(sessionId: string, subagentId: string, entry: string): Promise<void> {
+  await ensureStateLayout(sessionId);
+  const p = sessionPaths(sessionId).progressMd(subagentId);
   await mkdir(dirname(p), { recursive: true });
   const line = `\n---\n**${new Date().toISOString()}**\n${entry}\n`;
   await appendFile(p, line, "utf-8");
 }
 
-export async function readProgress(sessionId: string, trackId: string): Promise<string> {
-  const p = sessionPaths(sessionId).progressMd(trackId);
+export async function readProgress(sessionId: string, subagentId: string): Promise<string> {
+  await ensureStateLayout(sessionId);
+  const p = sessionPaths(sessionId).progressMd(subagentId);
   if (!existsSync(p)) return "";
   return readFile(p, "utf-8");
 }
 
-// ── All tracks ────────────────────────────────────────────────────────────────
+// ── All subagents ────────────────────────────────────────────────────────────
 
-export async function readAllTrackStates(sessionId: string): Promise<TrackState[]> {
-  const researchDir = join(SESSIONS_DIR, sessionId, "research");
-  if (!existsSync(researchDir)) return [];
+export async function readAllSubagentStates(sessionId: string): Promise<SubagentState[]> {
+  await ensureStateLayout(sessionId);
+  const subagentDir = join(SESSIONS_DIR, sessionId, "subagents");
+  if (!existsSync(subagentDir)) return [];
 
-  const { readdir } = await import("fs/promises");
-  const dirs = await readdir(researchDir, { withFileTypes: true });
-  const states: TrackState[] = [];
+  const dirs = await readdir(subagentDir, { withFileTypes: true });
+  const states: SubagentState[] = [];
 
   for (const d of dirs) {
     if (!d.isDirectory()) continue;
-    const state = await readTrackState(sessionId, d.name);
+    const state = await readSubagentState(sessionId, d.name);
     if (state) states.push(state);
   }
 
   return states;
 }
 
-export function allTracksTerminal(states: TrackState[]): boolean {
+export function allSubagentsTerminal(states: SubagentState[]): boolean {
   return (
     states.length > 0 &&
     states.every((s) => s.status === "found" || s.status === "disproven" || s.status === "blocked")
@@ -139,8 +172,9 @@ export async function clearStopSignal(sessionId: string): Promise<void> {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 export async function initStateDir(sessionId: string): Promise<void> {
+  await ensureStateLayout(sessionId);
   const p = sessionPaths(sessionId);
-  await mkdir(join(p.stateDir(), "research"), { recursive: true });
+  await mkdir(join(p.stateDir(), "subagents"), { recursive: true });
   await mkdir(p.outputDir(), { recursive: true });
 }
 
@@ -150,5 +184,5 @@ export async function resetSessionState(sessionId: string): Promise<void> {
 }
 
 // ── Zod passthrough for status.json ──────────────────────────────────────────
-const _guard: z.ZodType<TrackState> = TrackStateSchema;
+const _guard: z.ZodType<SubagentState> = SubagentStateSchema;
 void _guard;

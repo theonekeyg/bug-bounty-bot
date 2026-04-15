@@ -15,7 +15,7 @@ export interface AgentRunOptions {
   modelConfig: RunModelConfig;
   cwd?: string;
   sessionId?: string; // for DB event persistence and progress logging
-  trackId?: string; // used to stream progress back to the UI
+  subagentId?: string; // used to stream progress back to the UI
   iteration?: number; // Ralph Loop iteration index (for activity tracking)
   allowedTools?: string[];
   persistHeartbeats?: boolean;
@@ -35,9 +35,9 @@ export interface AgentRunResult {
   turns: number;
 }
 
-function emitResearchLog(trackId: string | undefined, text: string): void {
-  if (!trackId) return;
-  ipcBus.emit("research-log", { trackId, text });
+function emitResearchLog(subagentId: string | undefined, text: string): void {
+  if (!subagentId) return;
+  ipcBus.emit("research-log", { subagentId, text });
 }
 
 function isApiLimitError(error: unknown): boolean {
@@ -67,28 +67,28 @@ function isApiLimitError(error: unknown): boolean {
 
 function handleApiLimitError(
   error: unknown,
-  opts: Pick<AgentRunOptions, "trackId" | "sessionId">,
+  opts: Pick<AgentRunOptions, "subagentId" | "sessionId">,
   provider: string,
 ): void {
-  const { trackId, sessionId } = opts;
+  const { subagentId, sessionId } = opts;
   const errorMessage = error instanceof Error ? error.message : String(error);
   const isLimit = isApiLimitError(error);
 
   if (isLimit) {
     emitRuntimeEvent({
-      scope: trackId === "orchestrator" ? "session" : "track",
+      scope: subagentId === "orchestrator" ? "session" : "subagent",
       kind: "error",
       severity: "error",
-      trackId: trackId === "orchestrator" ? undefined : trackId,
+      subagentId: subagentId === "orchestrator" ? undefined : subagentId,
       title: "API limit reached",
       detail: `${provider} API quota exceeded. Please check your usage and billing status.`,
       stage: "API Limit",
     });
 
-    if (trackId && sessionId) {
+    if (subagentId && sessionId) {
       void appendProgress(
         sessionId,
-        trackId,
+        subagentId,
         `\n[API LIMIT] ${provider} API quota exceeded. Request failed: ${errorMessage}\n`,
       );
     }
@@ -96,8 +96,8 @@ function handleApiLimitError(
 }
 
 function startHeartbeat(opts: AgentRunOptions): () => void {
-  const trackId = opts.trackId;
-  if (!trackId) return () => undefined;
+  const subagentId = opts.subagentId;
+  if (!subagentId) return () => undefined;
 
   const startedAt = Date.now();
   let lastNotedAt = startedAt;
@@ -109,18 +109,18 @@ function startHeartbeat(opts: AgentRunOptions): () => void {
     const elapsedSec = Math.floor((now - startedAt) / 1000);
     const note = `[run] Still waiting for model output... (${elapsedSec}s elapsed)`;
 
-    emitResearchLog(trackId, `\n${note}\n`);
+    emitResearchLog(subagentId, `\n${note}\n`);
     emitRuntimeEvent({
-      scope: trackId === "orchestrator" ? "session" : "track",
+      scope: subagentId === "orchestrator" ? "session" : "subagent",
       kind: "heartbeat",
       severity: "info",
-      trackId: trackId === "orchestrator" ? undefined : trackId,
+      subagentId: subagentId === "orchestrator" ? undefined : subagentId,
       title: "Still waiting for model output",
       detail: `${elapsedSec}s elapsed`,
       stage: "Waiting For Model",
     });
     if (opts.persistHeartbeats && opts.sessionId) {
-      void appendProgress(opts.sessionId, trackId, note);
+      void appendProgress(opts.sessionId, subagentId, note);
     }
     lastNotedAt = now;
 
@@ -246,21 +246,21 @@ async function runClaudeStream(
           if (event.delta.type === "text_delta") {
             if (!announcedOutput) {
               emitRuntimeEvent({
-                scope: opts.trackId === "orchestrator" ? "session" : "track",
+                scope: opts.subagentId === "orchestrator" ? "session" : "subagent",
                 kind: "stage_changed",
                 severity: "info",
-                trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+                subagentId: opts.subagentId === "orchestrator" ? undefined : opts.subagentId,
                 title: "Model is producing output",
                 detail: opts.modelConfig.model,
                 stage: "Generating Output",
               });
               announcedOutput = true;
             }
-            emitResearchLog(opts.trackId, event.delta.text);
-          } else if (event.delta.type === "thinking_delta" && opts.sessionId && opts.trackId) {
+            emitResearchLog(opts.subagentId, event.delta.text);
+          } else if (event.delta.type === "thinking_delta" && opts.sessionId && opts.subagentId) {
             const thinkingEvent: AgentThinkingEvent = {
               sessionId: opts.sessionId,
-              trackId: opts.trackId,
+              subagentId: opts.subagentId,
               thinking: event.delta.thinking,
             };
             ipcBus.emit("agent-thinking", thinkingEvent);
@@ -269,7 +269,7 @@ async function runClaudeStream(
       }
 
       // ── Completed assistant turn ──────────────────────────────────────────
-      if (message.type === "assistant" && opts.sessionId && opts.trackId) {
+      if (message.type === "assistant" && opts.sessionId && opts.subagentId) {
         turnIndex++;
         const msg = message.message;
 
@@ -291,7 +291,7 @@ async function runClaudeStream(
           const { insertAgentTurn, insertToolCall } = await import("../db/activity.js");
           const turnId = await insertAgentTurn({
             sessionId: opts.sessionId,
-            trackId: opts.trackId,
+            subagentId: opts.subagentId,
             iteration: opts.iteration ?? 1,
             turnIndex,
             thinkingText,
@@ -329,7 +329,7 @@ async function runClaudeStream(
           const turnInfo: AgentTurnInfo = {
             id: turnId,
             sessionId: opts.sessionId,
-            trackId: opts.trackId,
+            subagentId: opts.subagentId,
             iteration: opts.iteration ?? 1,
             turnIndex,
             thinkingText,
@@ -344,7 +344,7 @@ async function runClaudeStream(
           };
           lastTurnEvent = {
             sessionId: opts.sessionId,
-            trackId: opts.trackId,
+            subagentId: opts.subagentId,
             turn: turnInfo,
           };
           ipcBus.emit("agent-turn", lastTurnEvent);
@@ -388,17 +388,17 @@ async function runClaudeStream(
             }
           }
           // Re-emit the turn with updated tool outcomes so the UI reflects results immediately
-          if (anyToolResultProcessed && lastTurnEvent && opts.trackId) {
+          if (anyToolResultProcessed && lastTurnEvent && opts.subagentId) {
             ipcBus.emit("agent-turn", lastTurnEvent);
           }
         }
       }
 
       // ── Tool progress ticks ───────────────────────────────────────────────
-      if (message.type === "tool_progress" && opts.sessionId && opts.trackId) {
+      if (message.type === "tool_progress" && opts.sessionId && opts.subagentId) {
         const progressEvent: AgentToolProgressEvent = {
           sessionId: opts.sessionId,
-          trackId: opts.trackId,
+          subagentId: opts.subagentId,
           toolUseId: message.tool_use_id,
           toolName: message.tool_name,
           elapsedSec: message.elapsed_time_seconds,
@@ -817,26 +817,26 @@ async function runOpenRouterAgentLoop(
     lastResult = text;
 
     // Stream thinking to UI
-    if (thinking && opts.sessionId && opts.trackId) {
-      const thinkEvent: AgentThinkingEvent = { sessionId: opts.sessionId, trackId: opts.trackId, thinking };
+    if (thinking && opts.sessionId && opts.subagentId) {
+      const thinkEvent: AgentThinkingEvent = { sessionId: opts.sessionId, subagentId: opts.subagentId, thinking };
       ipcBus.emit("agent-thinking", thinkEvent);
     }
 
     // Log to progress.md
-    if (opts.sessionId && opts.trackId) {
-      if (thinking) await appendProgress(opts.sessionId, opts.trackId, `**Thinking:**\n${thinking.slice(0, 2000)}`);
-      if (text) await appendProgress(opts.sessionId, opts.trackId, text.slice(0, 2000));
+    if (opts.sessionId && opts.subagentId) {
+      if (thinking) await appendProgress(opts.sessionId, opts.subagentId, `**Thinking:**\n${thinking.slice(0, 2000)}`);
+      if (text) await appendProgress(opts.sessionId, opts.subagentId, text.slice(0, 2000));
     }
 
     // Record turn to DB and emit event
-    if (opts.sessionId && opts.trackId) {
+    if (opts.sessionId && opts.subagentId) {
       const toolCallObjects: ToolCallInfo[] = [];
       let dbTurnId: string | undefined;
 
       try {
         dbTurnId = await insertAgentTurn({
           sessionId: opts.sessionId,
-          trackId: opts.trackId,
+          subagentId: opts.subagentId,
           iteration: opts.iteration ?? 1,
           turnIndex,
           thinkingText: thinking,
@@ -874,7 +874,7 @@ async function runOpenRouterAgentLoop(
       const turnInfo: AgentTurnInfo = {
         id: dbTurnId ?? "",
         sessionId: opts.sessionId,
-        trackId: opts.trackId,
+        subagentId: opts.subagentId,
         iteration: opts.iteration ?? 1,
         turnIndex,
         thinkingText: thinking,
@@ -887,7 +887,7 @@ async function runOpenRouterAgentLoop(
         completedAt: null,
         toolCalls: toolCallObjects,
       };
-      const turnEvent: AgentTurnEvent = { sessionId: opts.sessionId, trackId: opts.trackId, turn: turnInfo };
+      const turnEvent: AgentTurnEvent = { sessionId: opts.sessionId, subagentId: opts.subagentId, turn: turnInfo };
       ipcBus.emit("agent-turn", turnEvent);
 
       // Execute tool calls
@@ -904,9 +904,9 @@ async function runOpenRouterAgentLoop(
 
           try {
             const input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-            emitResearchLog(opts.trackId, `\n[tool] ${tc.function.name}: ${tc.function.arguments.slice(0, 120)}\n`);
+            emitResearchLog(opts.subagentId, `\n[tool] ${tc.function.name}: ${tc.function.arguments.slice(0, 120)}\n`);
             toolOutput = await executeLocalTool(tc.function.name, input, cwd, boxer, opts.workspaceId);
-            emitResearchLog(opts.trackId, `[tool result] ${toolOutput.slice(0, 300)}\n`);
+            emitResearchLog(opts.subagentId, `[tool result] ${toolOutput.slice(0, 300)}\n`);
           } catch (e) {
             toolOutput = `Error: ${String(e)}`;
             outcome = "error";
@@ -936,8 +936,8 @@ async function runOpenRouterAgentLoop(
         // Re-emit turn with resolved tool results
         ipcBus.emit("agent-turn", turnEvent);
 
-        if (opts.sessionId && opts.trackId) {
-          await appendProgress(opts.sessionId, opts.trackId, `[tools] Executed ${toolCallBlocks.length} tool(s) this turn`);
+        if (opts.sessionId && opts.subagentId) {
+          await appendProgress(opts.sessionId, opts.subagentId, `[tools] Executed ${toolCallBlocks.length} tool(s) this turn`);
         }
         continue; // next loop iteration — send tool results back to model
       }
@@ -946,7 +946,7 @@ async function runOpenRouterAgentLoop(
       turnInfo.completedAt = new Date().toISOString();
       ipcBus.emit("agent-turn", turnEvent);
     } else {
-      // No sessionId/trackId — just append to messages and continue
+      // No sessionId/subagentId — just append to messages and continue
       if (toolCallBlocks.length > 0) {
         messages.push({ role: "assistant", content: msg.content, tool_calls: toolCallBlocks });
         for (const tc of toolCallBlocks) {
@@ -960,7 +960,7 @@ async function runOpenRouterAgentLoop(
 
     // No tool calls → final response
     if (choice.finish_reason === "stop" || toolCallBlocks.length === 0) {
-      if (text) emitResearchLog(opts.trackId, text + "\n");
+      if (text) emitResearchLog(opts.subagentId, text + "\n");
       break;
     }
   }
@@ -976,16 +976,16 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
     if (provider === "openrouter") {
       const credential = requireRuntimeCredential("openrouter");
       emitRuntimeEvent({
-        scope: opts.trackId === "orchestrator" ? "session" : "track",
+        scope: opts.subagentId === "orchestrator" ? "session" : "subagent",
         kind: "waiting",
         severity: "info",
-        trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+        subagentId: opts.subagentId === "orchestrator" ? undefined : opts.subagentId,
         title: "Running agent loop via OpenRouter",
         detail: opts.modelConfig.model,
         stage: "Waiting For Model",
       });
-      if (opts.sessionId && opts.trackId) {
-        await appendProgress(opts.sessionId, opts.trackId,
+      if (opts.sessionId && opts.subagentId) {
+        await appendProgress(opts.sessionId, opts.subagentId,
           `[run] Requested model: ${opts.modelConfig.model} via openrouter`);
       }
 
@@ -1000,10 +1000,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
     if (provider === "openai") {
       const credential = requireRuntimeCredential("openai");
       emitRuntimeEvent({
-        scope: opts.trackId === "orchestrator" ? "session" : "track",
+        scope: opts.subagentId === "orchestrator" ? "session" : "subagent",
         kind: "waiting",
         severity: "info",
-        trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+        subagentId: opts.subagentId === "orchestrator" ? undefined : opts.subagentId,
         title: "Submitting request to OpenAI",
         detail: opts.modelConfig.model,
         stage: "Waiting For Model",
@@ -1019,7 +1019,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
         });
 
         const text = response.output_text?.trim() ?? "";
-        if (text) emitResearchLog(opts.trackId, text + "\n");
+        if (text) emitResearchLog(opts.subagentId, text + "\n");
         return { result: text, costUsd: 0, turns: 1 };
       } catch (error) {
         handleApiLimitError(error, opts, "OpenAI");
@@ -1029,10 +1029,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
 
     const credential = requireRuntimeCredential("anthropic");
     emitRuntimeEvent({
-      scope: opts.trackId === "orchestrator" ? "session" : "track",
+      scope: opts.subagentId === "orchestrator" ? "session" : "subagent",
       kind: "waiting",
       severity: "info",
-      trackId: opts.trackId === "orchestrator" ? undefined : opts.trackId,
+      subagentId: opts.subagentId === "orchestrator" ? undefined : opts.subagentId,
       title: "Submitting request to Claude Code",
       detail: opts.modelConfig.model,
       stage: "Waiting For Model",

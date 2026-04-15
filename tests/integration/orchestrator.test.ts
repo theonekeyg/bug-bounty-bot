@@ -2,7 +2,7 @@
  * Orchestrator agent integration tests.
  *
  * Uses delayMs:0 so the monitoring loop doesn't stall tests.
- * The model writes terminal-status tracks so the loop exits via the reporter path.
+ * The model writes terminal-status subagents so the loop exits via the reporter path.
  * Only model output is mocked — DB, state files, tool execution are all real.
  */
 
@@ -23,10 +23,10 @@ let briefPath: string;
 let briefDir: string;
 
 /** Write terminal status.json so the monitoring loop can exit immediately. */
-function terminalStatus(sessionId: string, trackId: string) {
+function terminalStatus(sessionId: string, subagentId: string) {
   const now = new Date().toISOString();
   return JSON.stringify({
-    trackId,
+    subagentId,
     sessionId,
     status: "disproven",
     hypothesis: "test hypothesis",
@@ -62,14 +62,14 @@ describe("attack surface mapping", () => {
     const paths = sessionPaths(env.sessionId);
 
     env.modelMock.enqueue(
-      // Orchestration turn: write plan + one terminal track
+      // Orchestration turn: write plan + one terminal subagent
       toolCallResponse([
-        { name: "Write", args: { file_path: paths.planMd(), content: "# Plan\n- Track A: SQL injection\n- Track B: XSS" } },
-        { name: "Write", args: { file_path: paths.hypothesisMd("track-a"), content: "# H\nSQLi" } },
-        { name: "Write", args: { file_path: paths.statusJson("track-a"), content: terminalStatus(env.sessionId, "track-a") } },
+        { name: "Write", args: { file_path: paths.planMd(), content: "# Plan\n- Subagent A: SQL injection\n- Subagent B: XSS" } },
+        { name: "Write", args: { file_path: paths.hypothesisMd("subagent-a"), content: "# H\nSQLi" } },
+        { name: "Write", args: { file_path: paths.statusJson("subagent-a"), content: terminalStatus(env.sessionId, "subagent-a") } },
       ]),
       textResponse("ORCHESTRATION_DONE"),
-      // Reporter turn (triggered once monitoring loop sees all tracks terminal)
+      // Reporter turn (triggered once monitoring loop sees all subagents terminal)
       reporterDone,
     );
 
@@ -77,19 +77,19 @@ describe("attack surface mapping", () => {
 
     const plan = await readPlan(env.sessionId);
     expect(plan).toContain("SQL injection");
-    expect(plan).toContain("Track B");
+    expect(plan).toContain("Subagent B");
   });
 
-  it("creates hypothesis and status files for each track", async () => {
+  it("creates hypothesis and status files for each subagent", async () => {
     const paths = sessionPaths(env.sessionId);
 
     env.modelMock.enqueue(
       toolCallResponse([
         { name: "Write", args: { file_path: paths.planMd(), content: "# Plan" } },
-        { name: "Write", args: { file_path: paths.hypothesisMd("track-1"), content: "# H\nSQLi" } },
-        { name: "Write", args: { file_path: paths.statusJson("track-1"), content: terminalStatus(env.sessionId, "track-1") } },
-        { name: "Write", args: { file_path: paths.hypothesisMd("track-2"), content: "# H\nXSS" } },
-        { name: "Write", args: { file_path: paths.statusJson("track-2"), content: terminalStatus(env.sessionId, "track-2") } },
+        { name: "Write", args: { file_path: paths.hypothesisMd("subagent-1"), content: "# H\nSQLi" } },
+        { name: "Write", args: { file_path: paths.statusJson("subagent-1"), content: terminalStatus(env.sessionId, "subagent-1") } },
+        { name: "Write", args: { file_path: paths.hypothesisMd("subagent-2"), content: "# H\nXSS" } },
+        { name: "Write", args: { file_path: paths.statusJson("subagent-2"), content: terminalStatus(env.sessionId, "subagent-2") } },
       ]),
       textResponse("ORCHESTRATION_DONE"),
       reporterDone,
@@ -97,19 +97,19 @@ describe("attack surface mapping", () => {
 
     await runOrchestrator(briefPath, null, env.modelConfig, { sessionId: env.sessionId, delayMs: 0 });
 
-    expect(existsSync(paths.hypothesisMd("track-1"))).toBe(true);
-    expect(existsSync(paths.hypothesisMd("track-2"))).toBe(true);
-    expect(existsSync(paths.statusJson("track-1"))).toBe(true);
+    expect(existsSync(paths.hypothesisMd("subagent-1"))).toBe(true);
+    expect(existsSync(paths.hypothesisMd("subagent-2"))).toBe(true);
+    expect(existsSync(paths.statusJson("subagent-1"))).toBe(true);
   });
 
-  it("registers tracks in the DB after ORCHESTRATION_DONE", async () => {
+  it("registers subagents in the DB after ORCHESTRATION_DONE", async () => {
     const paths = sessionPaths(env.sessionId);
 
     env.modelMock.enqueue(
       toolCallResponse([
         { name: "Write", args: { file_path: paths.planMd(), content: "# Plan" } },
-        { name: "Write", args: { file_path: paths.hypothesisMd("track-db"), content: "# H\nSQLi" } },
-        { name: "Write", args: { file_path: paths.statusJson("track-db"), content: terminalStatus(env.sessionId, "track-db") } },
+        { name: "Write", args: { file_path: paths.hypothesisMd("subagent-db"), content: "# H\nSQLi" } },
+        { name: "Write", args: { file_path: paths.statusJson("subagent-db"), content: terminalStatus(env.sessionId, "subagent-db") } },
       ]),
       textResponse("ORCHESTRATION_DONE"),
       reporterDone,
@@ -118,9 +118,9 @@ describe("attack surface mapping", () => {
     await runOrchestrator(briefPath, null, env.modelConfig, { sessionId: env.sessionId, delayMs: 0 });
 
     const db = getDb();
-    const track = await db.track.findUnique({ where: { id: "track-db" } });
-    expect(track).not.toBeNull();
-    expect(track?.sessionId).toBe(env.sessionId);
+    const subagent = await db.subagent.findUnique({ where: { id: "subagent-db" } });
+    expect(subagent).not.toBeNull();
+    expect(subagent?.sessionId).toBe(env.sessionId);
   });
 });
 

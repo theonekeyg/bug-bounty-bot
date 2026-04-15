@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { TrackState, PendingInstall, RuntimeEvent } from "../src/types/index.js";
+import type { SubagentState, PendingInstall, RuntimeEvent } from "../src/types/index.js";
 import type { SessionInfo } from "../src/db/sessions.js";
 import type { AgentTurnInfo } from "../src/types/activity.js";
 import type { AgentThinkingEvent, AgentTurnEvent, AgentToolProgressEvent } from "../src/ipc/bus.js";
@@ -10,7 +10,7 @@ export type { SessionInfo, AgentTurnInfo };
 export interface StoredEvent {
   id: string;
   sessionId: string;
-  trackId?: string;
+  subagentId?: string;
   kind: string;
   severity: string;
   title: string;
@@ -20,7 +20,7 @@ export interface StoredEvent {
   createdAt: string;
 }
 
-export interface TrackFileInfo {
+export interface SubagentFileInfo {
   path: string;
   relativePath: string;
   size: number;
@@ -34,26 +34,26 @@ export interface BugBountyAPI {
   getSessionEvents: (sessionId: string) => Promise<StoredEvent[]>;
   getSessionStateDir: (sessionId: string) => Promise<string>;
   setActiveSession: (sessionId: string) => Promise<{ ok: boolean }>;
-  setMaxTracks: (sessionId: string, maxTracks: number) => Promise<{ ok: boolean }>;
+  setMaxSubagents: (sessionId: string, maxSubagents: number) => Promise<{ ok: boolean }>;
   stopResearch: (sessionId: string) => Promise<{ stopped: boolean } | { error: string }>;
   resumeResearch: (sessionId: string) => Promise<{ started: boolean; sessionId: string } | { error: string }>;
 
   // Research lifecycle
-  startResearch: (briefPath: string, boxerUrl: string, model: string, maxTracks: number) => Promise<{ started: boolean; sessionId: string | null }>;
+  startResearch: (briefPath: string, boxerUrl: string, model: string, maxSubagents: number) => Promise<{ started: boolean; sessionId: string | null }>;
   writeBrief: (content: string) => Promise<string>;
   readFile: (path: string) => Promise<string | null>;
   pickFile: (filters?: Electron.FileFilter[]) => Promise<string | null>;
-  getProgress: (sessionId?: string) => Promise<TrackState[]>;
+  getProgress: (sessionId?: string) => Promise<SubagentState[]>;
   getPendingInstalls: (sessionId?: string) => Promise<PendingInstall[]>;
   resolveInstall: (
-    trackId: string,
+    subagentId: string,
     approved: boolean,
     install: PendingInstall,
   ) => Promise<{ approved: boolean; output?: string; exitCode?: number; error?: string }>;
 
   // Activity
-  getAgentActivity: (sessionId: string, trackId: string) => Promise<AgentTurnInfo[]>;
-  listTrackFiles: (sessionId: string, trackId: string) => Promise<TrackFileInfo[]>;
+  getAgentActivity: (sessionId: string, subagentId: string) => Promise<AgentTurnInfo[]>;
+  listSubagentFiles: (sessionId: string, subagentId: string) => Promise<SubagentFileInfo[]>;
   getProviderStatuses: () => Promise<ProviderStatus[]>;
   getProviderStatus: (provider: Provider) => Promise<ProviderStatus>;
   testProviderCredential: (
@@ -77,7 +77,7 @@ export interface BugBountyAPI {
 
   // Event streams
   onResearchError: (cb: (err: string) => void) => void;
-  onResearchLog: (cb: (trackId: string, text: string) => void) => void;
+  onResearchLog: (cb: (subagentId: string, text: string) => void) => void;
   onRuntimeEvent: (cb: (event: RuntimeEvent) => void) => void;
   onAgentThinking: (cb: (event: AgentThinkingEvent) => void) => void;
   onAgentTurn: (cb: (event: AgentTurnEvent) => void) => void;
@@ -91,12 +91,12 @@ contextBridge.exposeInMainWorld("bugBounty", {
   getSessionEvents: (sessionId: string) => ipcRenderer.invoke("get-session-events", sessionId),
   getSessionStateDir: (sessionId: string) => ipcRenderer.invoke("get-session-state-dir", sessionId),
   setActiveSession: (sessionId: string) => ipcRenderer.invoke("set-active-session", sessionId),
-  setMaxTracks: (sessionId: string, maxTracks: number) => ipcRenderer.invoke("set-max-tracks", sessionId, maxTracks),
+  setMaxSubagents: (sessionId: string, maxSubagents: number) => ipcRenderer.invoke("set-max-subagents", sessionId, maxSubagents),
   stopResearch: (sessionId: string) => ipcRenderer.invoke("stop-research", sessionId),
   resumeResearch: (sessionId: string) => ipcRenderer.invoke("resume-research", sessionId),
 
-  startResearch: (briefPath: string, boxerUrl: string, model: string, maxTracks: number) =>
-    ipcRenderer.invoke("start-research", briefPath, boxerUrl, model, maxTracks),
+  startResearch: (briefPath: string, boxerUrl: string, model: string, maxSubagents: number) =>
+    ipcRenderer.invoke("start-research", briefPath, boxerUrl, model, maxSubagents),
 
   writeBrief: (content: string) => ipcRenderer.invoke("write-brief", content),
 
@@ -108,14 +108,14 @@ contextBridge.exposeInMainWorld("bugBounty", {
 
   getPendingInstalls: (sessionId?: string) => ipcRenderer.invoke("get-pending-installs", sessionId),
 
-  resolveInstall: (trackId: string, approved: boolean, install: PendingInstall) =>
-    ipcRenderer.invoke("resolve-install", trackId, approved, install),
+  resolveInstall: (subagentId: string, approved: boolean, install: PendingInstall) =>
+    ipcRenderer.invoke("resolve-install", subagentId, approved, install),
 
-  getAgentActivity: (sessionId: string, trackId: string) =>
-    ipcRenderer.invoke("get-agent-activity", sessionId, trackId),
+  getAgentActivity: (sessionId: string, subagentId: string) =>
+    ipcRenderer.invoke("get-agent-activity", sessionId, subagentId),
 
-  listTrackFiles: (sessionId: string, trackId: string) =>
-    ipcRenderer.invoke("list-track-files", sessionId, trackId),
+  listSubagentFiles: (sessionId: string, subagentId: string) =>
+    ipcRenderer.invoke("list-subagent-files", sessionId, subagentId),
   getProviderStatuses: () => ipcRenderer.invoke("get-provider-statuses"),
   getProviderStatus: (provider: Provider) => ipcRenderer.invoke("get-provider-status", provider),
   testProviderCredential: (provider: Provider, source: CredentialSource, secret: string | null) =>
@@ -130,9 +130,9 @@ contextBridge.exposeInMainWorld("bugBounty", {
   onResearchError: (cb: (err: string) => void) =>
     ipcRenderer.on("research-error", (_event, err: string) => cb(err)),
 
-  onResearchLog: (cb: (trackId: string, text: string) => void) =>
-    ipcRenderer.on("research-log", (_event, { trackId, text }: { trackId: string; text: string }) =>
-      cb(trackId, text),
+  onResearchLog: (cb: (subagentId: string, text: string) => void) =>
+    ipcRenderer.on("research-log", (_event, { subagentId, text }: { subagentId: string; text: string }) =>
+      cb(subagentId, text),
     ),
 
   onRuntimeEvent: (cb: (event: RuntimeEvent) => void) =>

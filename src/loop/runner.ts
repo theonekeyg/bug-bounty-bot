@@ -20,12 +20,12 @@ export interface LoopIteration {
 
 export interface RalphLoopOptions {
   sessionId: string;
-  trackId: string;
+  subagentId: string;
   label: string;
   maxIterations?: number;
   delayMs?: number;
   onIteration?: (iteration: number) => void;
-  scope?: "session" | "track";
+  scope?: "session" | "subagent";
 }
 
 /**
@@ -40,21 +40,21 @@ export async function runRalphLoop(
   agentFn: (abortController: AbortController) => Promise<LoopIteration>,
   opts: RalphLoopOptions,
 ): Promise<void> {
-  const { sessionId, trackId, label, maxIterations = 50, delayMs = 1000, scope = "track" } = opts;
+  const { sessionId, subagentId, label, maxIterations = 50, delayMs = 1000, scope = "subagent" } = opts;
   let iteration = 0;
 
-  await appendProgress(sessionId, trackId, `[loop] Starting "${label}" (maxIterations=${maxIterations})`);
+  await appendProgress(sessionId, subagentId, `[loop] Starting "${label}" (maxIterations=${maxIterations})`);
 
   while (iteration < maxIterations) {
     // Check for user-requested stop before each iteration
     if (checkStopSignal(sessionId)) {
       const msg = `[loop] "${label}" stopped by user request.`;
-      await appendProgress(sessionId, trackId, msg);
+      await appendProgress(sessionId, subagentId, msg);
       emitRuntimeEvent({
         scope,
         kind: "stage_changed",
         severity: "warning",
-        trackId: scope === "track" ? trackId : undefined,
+        subagentId: scope === "subagent" ? subagentId : undefined,
         title: `${label} stopped`,
         detail: "Stopped by user — can be resumed.",
         stage: "Stopped",
@@ -83,12 +83,12 @@ export async function runRalphLoop(
       // If the abort was triggered by a stop signal, exit cleanly instead of retrying.
       if (abortController.signal.aborted) {
         const msg = `[loop] "${label}" aborted mid-iteration by user stop.`;
-        await appendProgress(sessionId, trackId, msg);
+        await appendProgress(sessionId, subagentId, msg);
         emitRuntimeEvent({
           scope,
           kind: "stage_changed",
           severity: "warning",
-          trackId: scope === "track" ? trackId : undefined,
+          subagentId: scope === "subagent" ? subagentId : undefined,
           title: `${label} stopped`,
           detail: "Stopped by user — can be resumed.",
           stage: "Stopped",
@@ -97,12 +97,12 @@ export async function runRalphLoop(
         return;
       }
       const msg = `[loop] Iteration ${iteration} threw: ${String(err)}`;
-      await appendProgress(sessionId, trackId, msg);
+      await appendProgress(sessionId, subagentId, msg);
       emitRuntimeEvent({
         scope,
         kind: "retrying",
         severity: "warning",
-        trackId: scope === "track" ? trackId : undefined,
+        subagentId: scope === "subagent" ? subagentId : undefined,
         title: `${label} iteration ${iteration} failed`,
         detail: String(err),
       });
@@ -116,12 +116,12 @@ export async function runRalphLoop(
 
     if (result.done) {
       const msg = `[loop] "${label}" completed after ${iteration} iteration(s). Reason: ${result.reason ?? "done"}`;
-      await appendProgress(sessionId, trackId, msg);
+      await appendProgress(sessionId, subagentId, msg);
       emitRuntimeEvent({
         scope,
         kind: "session_completed",
         severity: "success",
-        trackId: scope === "track" ? trackId : undefined,
+        subagentId: scope === "subagent" ? subagentId : undefined,
         title: `${label} completed`,
         detail: result.reason ?? "done",
       });
@@ -133,12 +133,12 @@ export async function runRalphLoop(
   }
 
   const msg = `[loop] "${label}" hit maxIterations (${maxIterations}). Stopping.`;
-  await appendProgress(sessionId, trackId, msg);
+  await appendProgress(sessionId, subagentId, msg);
   emitRuntimeEvent({
     scope,
     kind: "error",
     severity: "error",
-    trackId: scope === "track" ? trackId : undefined,
+    subagentId: scope === "subagent" ? subagentId : undefined,
     title: `${label} stopped after hitting max iterations`,
     detail: `maxIterations=${maxIterations}`,
   });

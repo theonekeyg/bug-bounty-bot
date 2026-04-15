@@ -26,7 +26,7 @@ const RunCommandInput = z.object({
 export type RunCommandInput = z.infer<typeof RunCommandInput>;
 
 interface CommandToolOptions {
-  trackId: string;
+  subagentId: string;
   commandLogPath: string;
   boxer: BoxerClient;
 }
@@ -71,7 +71,7 @@ export function makeRunCommandTool(opts: CommandToolOptions): ToolDefinition<Run
 
       const logEntry: CommandLogEntry = {
         timestamp: new Date().toISOString(),
-        trackId: opts.trackId,
+        subagentId: opts.subagentId,
         cwd: "/workspace",
         command: parsed.command,
         exitCode: null,

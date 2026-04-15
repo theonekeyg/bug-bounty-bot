@@ -16,7 +16,7 @@ export type ToolCallInfo = z.infer<typeof ToolCallInfoSchema>;
 export const AgentTurnInfoSchema = z.object({
   id: z.string(),
   sessionId: z.string(),
-  trackId: z.string(),
+  subagentId: z.string(),
   iteration: z.number(),
   turnIndex: z.number(),
   thinkingText: z.string(),

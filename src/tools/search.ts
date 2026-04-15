@@ -72,7 +72,7 @@ export const fetchUrlTool: ToolDefinition<z.infer<typeof FetchUrlInput>> = {
       if (res.status === 429 || res.status === 402) {
         const errorText = await res.text();
         emitRuntimeEvent({
-          scope: "track",
+          scope: "subagent",
           kind: "error",
           severity: "error",
           title: "API limit reached",

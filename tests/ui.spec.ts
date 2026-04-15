@@ -50,14 +50,14 @@ test.describe("Bug Bounty Agent UI", () => {
     await expect(page.locator("#start-btn")).toBeDisabled();
     await expect(page.locator("#start-btn")).toHaveText("Set up Anthropic to continue");
     await expect(page.locator("#start-hint")).toContainText("Anthropic");
-    await expect(page.locator("#track-list")).toBeHidden();
+    await expect(page.locator("#subagent-list")).toBeHidden();
   });
 
   test("session-live mode hides the sessions list and keeps the runtime view active", async () => {
     await page.evaluate(() => document.body.classList.add("session-live"));
     await expect(page.locator("#sessions-view")).toBeHidden();
     await expect(page.locator("#runtime-session-card")).toBeVisible();
-    await expect(page.locator("#track-list")).toBeVisible();
+    await expect(page.locator("#subagent-list")).toBeVisible();
   });
 
   test("resume controls use compact primary buttons", async () => {
@@ -78,8 +78,8 @@ test.describe("Bug Bounty Agent UI", () => {
     await expect(page.locator("#stop-session-btn")).toBeHidden();
     await expect(page.locator("#session-health-pill")).toHaveText("Stopped");
     await expect(page.locator("#session-action-state")).toHaveText("Resume available");
-    await expect(page.locator("#tracks-container")).toContainText("stopped");
-    await expect(page.locator("#tracks-container")).toContainText("Research session stopped");
+    await expect(page.locator("#subagents-container")).toContainText("stopped");
+    await expect(page.locator("#subagents-container")).toContainText("Research session stopped");
   });
 
   test("provider cards surface every provider with explicit readiness", async () => {

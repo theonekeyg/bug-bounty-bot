@@ -22,7 +22,7 @@ export type ToolResult = z.infer<typeof ToolResultSchema>;
 
 /** Context injected into every tool call. */
 export interface ToolContext {
-  trackId: string;
+  subagentId: string;
   stateDir: string;
   outputDir: string;
 }

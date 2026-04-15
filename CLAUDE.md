@@ -26,7 +26,7 @@ Agents run autonomously until a completion criterion is met. Progress lives on d
 - **Runtime**: Bun. No separate TypeScript runner needed — Bun executes `.ts` natively.
 - **Agent SDK**: `@anthropic-ai/claude-agent-sdk` — same integration as Claude Code itself. Requires `claude auth login` before running. Uses `pathToClaudeCodeExecutable` to point at the local Claude Code binary.
 - **UI**: Electron — interactive brief creation, real-time research progress, findings viewer.
-- **Sandbox**: [Boxer](https://github.com/theonekeyg/boxer) (gVisor-backed). TypeScript SDK, zero deps, Node 18+. Each research track runs in its own Boxer execution. Network mode configurable per track (`none` / `sandbox` / `host`).
+- **Sandbox**: [Boxer](https://github.com/theonekeyg/boxer) (gVisor-backed). TypeScript SDK, zero deps, Node 18+. Each research subagent runs in its own Boxer execution. Network mode configurable per subagent (`none` / `sandbox` / `host`).
 - **Linting/formatting**: `eslint` + `@typescript-eslint`, `prettier`.
 - **Testing**: `bun test`.
 
@@ -38,7 +38,7 @@ Agents run autonomously until a completion criterion is met. Progress lives on d
 Electron UI
     │ user brief
     ▼
-Orchestrator Agent          ← reads brief, maps attack surface, spawns tracks
+Orchestrator Agent          ← reads brief, maps attack surface, spawns subagents
     │ spawns N
     ├── Researcher Agent A  ← owns one hypothesis, loops until found/disproven
     ├── Researcher Agent B
@@ -48,19 +48,19 @@ Orchestrator Agent          ← reads brief, maps attack surface, spawns tracks
        Reporter Agent       ← aggregates state/, writes output/
 ```
 
-**Orchestrator**: Parses brief → determines attack surface → spawns one Researcher per track → writes `state/plan.md` → exits. Loop restarts it to monitor completion.
+**Orchestrator**: Parses brief → determines attack surface → spawns one Researcher per subagent → writes `state/plan.md` → exits. Loop restarts it to monitor completion.
 
 **Researcher**: Owns one vulnerability hypothesis. Loops: reason → tool call → write findings → repeat. Terminates when PoC confirmed or hypothesis conclusively disproven.
 
-**Reporter**: Triggered when all tracks terminal. Reads `state/research/*/` → writes `output/report.md` + `output/repro/`.
+**Reporter**: Triggered when all subagents terminal. Reads `state/subagents/*/` → writes `output/report.md` + `output/repro/`.
 
 ### State Layout
 
 ```
 state/
-  plan.md                        # attack surface map + track assignments
+  plan.md                        # attack surface map + subagent assignments
   command_log.jsonl              # all shell commands (append-only, required)
-  research/<track-id>/
+  subagents/<subagent-id>/
     hypothesis.md
     progress.md                  # append-only running log
     findings.md
@@ -78,7 +78,7 @@ output/
 
 ## Sandboxing with Boxer
 
-All agent-executed shell commands run inside Boxer sandboxes (gVisor isolation). Each Researcher track gets its own sandbox instance.
+All agent-executed shell commands run inside Boxer sandboxes (gVisor isolation). Each Researcher subagent gets its own sandbox instance.
 
 - **Default network mode**: `none` (no external access). Researcher upgrades to `sandbox` or `host` only when required and documents why in `progress.md`.
 - Files are uploaded before execution and captured from `/output/` after.
@@ -92,7 +92,7 @@ All agent-executed shell commands run inside Boxer sandboxes (gVisor isolation).
 
 Agents may determine that additional tools are needed (system packages, npm deps, Semgrep rules, etc.). The flow:
 
-1. Agent writes the proposed installation to `state/research/<track-id>/pending_install.md` with justification.
+1. Agent writes the proposed installation to `state/subagents/<subagent-id>/pending_install.md` with justification.
 2. Electron UI surfaces this as a permission prompt to the user.
 3. Agent blocks on `status.json` → `"awaiting_permission"` until user approves or rejects.
 4. On approval, agent proceeds inside the Boxer sandbox where possible; system-level installs happen on the host after explicit user confirmation.

@@ -1,14 +1,14 @@
 /**
  * Orchestrator agent.
- * Uses Claude Code natively — reads brief, maps attack surface, spawns research tracks.
+ * Uses Claude Code natively — reads brief, maps attack surface, spawns subagents.
  */
 
 import { readFile } from "fs/promises";
 import { runAgent } from "../sdk/client.js";
 import {
   appendProgress,
-  readAllTrackStates,
-  allTracksTerminal,
+  readAllSubagentStates,
+  allSubagentsTerminal,
   initStateDir,
   sessionPaths,
 } from "../loop/state.js";
@@ -20,18 +20,18 @@ import type { RunModelConfig } from "../types/provider.js";
 import { getModelInfo, getModelProvider } from "../types/provider.js";
 import { runReporter } from "../reporter/agent.js";
 import { emitSessionEvent } from "../ipc/bus.js";
-import { createSession, updateSessionStatus, upsertTrack } from "../db/sessions.js";
+import { createSession, updateSessionStatus, upsertSubagent } from "../db/sessions.js";
 
-const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, maxTracks: number) => `You are the Orchestrator in an autonomous security research system.
+const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, maxSubagents: number) => `You are the Orchestrator in an autonomous security research system.
 
 Your job:
 1. Read the user's brief and understand the target, scope, and goal.
 2. Identify the attack surface — all vulnerability classes and entry points worth investigating.
-3. Define research tracks — one focused, falsifiable hypothesis per track (max ${maxTracks}).
-4. Write ${stateDir}/plan.md with the attack surface map and track list.
-5. For each track, create:
-   - ${stateDir}/research/<track-id>/hypothesis.md  (the hypothesis)
-   - ${stateDir}/research/<track-id>/status.json    ({"status":"running","trackId":"<id>","hypothesis":"<one-line>","startedAt":"<iso>","updatedAt":"<iso>"})
+3. Define subagents — one focused, falsifiable hypothesis per subagent (max ${maxSubagents}).
+4. Write ${stateDir}/plan.md with the attack surface map and subagent list.
+5. For each subagent, create:
+   - ${stateDir}/subagents/<subagent-id>/hypothesis.md  (the hypothesis)
+   - ${stateDir}/subagents/<subagent-id>/status.json    ({"status":"running","subagentId":"<id>","hypothesis":"<one-line>","startedAt":"<iso>","updatedAt":"<iso>"})
 
 Use the Write tool for all file creation.
 When all files are written, end your response with: ORCHESTRATION_DONE`;
@@ -72,7 +72,7 @@ export async function runOrchestrator(
       briefContent: raw,
       model: modelConfig.model,
       boxerUrl: boxer?.baseUrl ?? "",
-      maxTracks: modelConfig.maxTracks,
+      maxSubagents: modelConfig.maxSubagents,
     });
     await initStateDir(sessionId);
   }
@@ -109,13 +109,13 @@ export async function runOrchestrator(
     stage: "Loading Brief",
   });
 
-  let tracksCreated = false;
+  let subagentsCreated = false;
   let currentIteration = 1;
 
   // If resuming and plan already exists, skip orchestration and go to research.
-  const existingStates = await readAllTrackStates(sessionId);
+  const existingStates = await readAllSubagentStates(sessionId);
   if (resuming && existingStates.length > 0) {
-    tracksCreated = true;
+    subagentsCreated = true;
     const nonTerminal = existingStates.filter(
       (s) => s.status !== "found" && s.status !== "disproven" && s.status !== "blocked",
     );
@@ -124,58 +124,58 @@ export async function runOrchestrator(
       kind: "stage_changed",
       severity: "info",
       title: "Resuming research",
-      detail: `${nonTerminal.length} track(s) need resumption, ${existingStates.length - nonTerminal.length} already terminal`,
-      stage: "Launching Researchers",
+      detail: `${nonTerminal.length} subagent(s) need resumption, ${existingStates.length - nonTerminal.length} already terminal`,
+      stage: "Launching Subagents",
     });
     for (const state of nonTerminal) {
       emitSessionEvent(sessionId, {
-        scope: "track",
-        kind: "track_created",
+        scope: "subagent",
+        kind: "subagent_created",
         severity: "info",
-        trackId: state.trackId,
-        title: `Track resumed: ${state.trackId}`,
+        subagentId: state.subagentId,
+        title: `Subagent resumed: ${state.subagentId}`,
         detail: state.hypothesis,
         stage: "Queued",
         status: state.status,
       });
-      runResearcher(sessionId, state.trackId, brief, boxer, modelConfig).catch((err: unknown) =>
-        console.error(`Researcher ${state.trackId} crashed:`, err),
+      runResearcher(sessionId, state.subagentId, brief, boxer, modelConfig).catch((err: unknown) =>
+        console.error(`Researcher ${state.subagentId} crashed:`, err),
       );
     }
     emitSessionEvent(sessionId, {
       scope: "session",
       kind: "stage_changed",
       severity: "info",
-      title: "Researchers re-launched",
-      detail: "Investigation resumed across active tracks",
+      title: "Subagents re-launched",
+      detail: "Investigation resumed across active subagents",
       stage: "Research In Progress",
     });
   }
 
   await runRalphLoop(
     async (abortController): Promise<LoopIteration> => {
-      if (tracksCreated) {
+      if (subagentsCreated) {
         emitSessionEvent(sessionId, {
           scope: "session",
           kind: "waiting",
           severity: "info",
-          title: "Waiting for researchers",
-          detail: "Monitoring track completion before report generation",
+          title: "Waiting for subagents",
+          detail: "Monitoring subagent completion before report generation",
           stage: "Research In Progress",
         });
-        const states = await readAllTrackStates(sessionId);
-        if (allTracksTerminal(states)) {
+        const states = await readAllSubagentStates(sessionId);
+        if (allSubagentsTerminal(states)) {
           emitSessionEvent(sessionId, {
             scope: "session",
             kind: "stage_changed",
             severity: "info",
-            title: "All tracks are terminal",
+            title: "All subagents are terminal",
             detail: "Starting report generation",
             stage: "Reporting",
           });
           await runReporter(sessionId, boxer, modelConfig);
           await updateSessionStatus(sessionId, "completed");
-          return { done: true, reason: "all tracks terminal, report generated" };
+          return { done: true, reason: "all subagents terminal, report generated" };
         }
         return { done: false };
       }
@@ -190,11 +190,11 @@ export async function runOrchestrator(
       });
       const result = await runAgent({
         modelConfig,
-        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir(), modelConfig.maxTracks),
-        prompt: buildPrompt(brief, raw, modelConfig.maxTracks),
+        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir(), modelConfig.maxSubagents),
+        prompt: buildPrompt(brief, raw, modelConfig.maxSubagents),
         cwd: process.cwd(),
         sessionId,
-        trackId: "orchestrator",
+        subagentId: "orchestrator",
         iteration: currentIteration,
         allowedTools: ["Write", "Read", "Edit", "Glob", "Grep"],
         persistHeartbeats: true,
@@ -202,75 +202,68 @@ export async function runOrchestrator(
       });
 
       if (result.result.includes("ORCHESTRATION_DONE")) {
-        tracksCreated = true;
-        const states = await readAllTrackStates(sessionId);
+        subagentsCreated = true;
+        const states = await readAllSubagentStates(sessionId);
         emitSessionEvent(sessionId, {
           scope: "session",
           kind: "stage_changed",
           severity: "info",
-          title: "Research tracks created",
-          detail: `${states.length} track(s) ready`,
-          stage: "Launching Researchers",
+          title: "Subagents created",
+          detail: `${states.length} subagent(s) ready`,
+          stage: "Launching Subagents",
         });
-        // Register tracks in DB and spawn researchers concurrently
+        // Register subagents in DB and spawn researchers concurrently
         for (const state of states) {
-          await upsertTrack({
-            id: state.trackId,
+          await upsertSubagent({
+            id: state.subagentId,
             sessionId,
             hypothesis: state.hypothesis,
             status: state.status,
+            ...(state.workspaceId !== undefined ? { workspaceId: state.workspaceId } : {}),
           });
           emitSessionEvent(sessionId, {
-            scope: "track",
-            kind: "track_created",
+            scope: "subagent",
+            kind: "subagent_created",
             severity: "info",
-            trackId: state.trackId,
-            title: `Track created: ${state.trackId}`,
+            subagentId: state.subagentId,
+            title: `Subagent created: ${state.subagentId}`,
             detail: state.hypothesis,
             stage: "Queued",
             status: state.status,
           });
-          runResearcher(sessionId, state.trackId, brief, boxer, modelConfig).catch((err: unknown) =>
-            console.error(`Researcher ${state.trackId} crashed:`, err),
+          runResearcher(sessionId, state.subagentId, brief, boxer, modelConfig).catch((err: unknown) =>
+            console.error(`Researcher ${state.subagentId} crashed:`, err),
           );
         }
         emitSessionEvent(sessionId, {
           scope: "session",
           kind: "stage_changed",
           severity: "info",
-          title: "Researchers launched",
-          detail: "Investigation is now running across active tracks",
+          title: "Subagents launched",
+          detail: "Investigation is now running across active subagents",
           stage: "Research In Progress",
         });
+        return { done: false };
       }
 
       return { done: false };
     },
     {
       sessionId,
-      trackId: "orchestrator",
+      subagentId: "orchestrator",
       label: "Orchestrator",
-      maxIterations: 100,
-      delayMs: opts.delayMs ?? 5000,
+      ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
       scope: "session",
-      onIteration: (i) => { currentIteration = i; },
     },
   );
 }
 
-function buildPrompt(brief: ReturnType<typeof parseBrief>, rawBrief: string, maxTracks: number): string {
-  return `Start a new security research engagement.
+function buildPrompt(brief: { target: string; scope: string; goal: string }, rawBrief: string, maxSubagents: number): string {
+  return `You are the Orchestrator.
 
-## Raw Brief
+Brief:
 ${rawBrief}
 
-## Parsed
-- Target: ${brief.target}
-- Scope: ${brief.scope}
-- Goal: ${brief.goal}
-${brief.code ? `- Code: ${brief.code.join(", ")}` : ""}
-${brief.links ? `- Links: ${brief.links.join(", ")}` : ""}
-${brief.context ? `- Context: ${brief.context}` : ""}
-
-Map the attack surface, define tracks (max ${maxTracks}), write all state files, then respond with ORCHESTRATION_DONE.`;
+Task:
+Map the attack surface, define subagents (max ${maxSubagents}), write all state files, then respond with ORCHESTRATION_DONE.`;
 }

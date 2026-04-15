@@ -9,9 +9,9 @@ import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { runAgent } from "../sdk/client.js";
 import {
-  readTrackState,
-  writeTrackState,
-  updateTrackStatus,
+  readSubagentState,
+  writeSubagentState,
+  updateSubagentStatus,
   appendProgress,
   readProgress,
   sessionPaths,
@@ -21,10 +21,10 @@ import { runRalphLoop, type LoopIteration } from "../loop/runner.js";
 import type { Brief } from "../types/index.js";
 import type { RunModelConfig } from "../types/provider.js";
 import { emitSessionEvent } from "../ipc/bus.js";
-import { updateTrackInDb, upsertTrack } from "../db/sessions.js";
+import { updateSubagentInDb, upsertSubagent } from "../db/sessions.js";
 
-const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, trackId: string, sandbox: boolean) =>
-  `You are a Researcher in an autonomous security research system.
+const SYSTEM_PROMPT_TEMPLATE = (stateDir: string, subagentId: string, sandbox: boolean) =>
+  `You are a Subagent in an autonomous security research system.
 
 You own one specific vulnerability hypothesis. Each time you run, read your state files and continue exactly where you left off.
 
@@ -35,23 +35,23 @@ You own one specific vulnerability hypothesis. Each time you run, read your stat
 - WebFetch / WebSearch — research CVEs, techniques, documentation
 
 ## Your loop
-1. Read ${stateDir}/research/${trackId}/hypothesis.md and ${stateDir}/research/${trackId}/progress.md to understand current state.
+1. Read ${stateDir}/subagents/${subagentId}/hypothesis.md and ${stateDir}/subagents/${subagentId}/progress.md to understand current state.
 2. Plan the next investigation step.
 3. Execute it (use Bash/Grep/Read/WebFetch etc).
-4. Append findings to ${stateDir}/research/${trackId}/progress.md after EVERY significant action.
+4. Append findings to ${stateDir}/subagents/${subagentId}/progress.md after EVERY significant action.
 5. When conclusion reached:
 
-   Found vulnerability → write full details to ${stateDir}/research/${trackId}/findings.md, create output/ with:
+   Found vulnerability → write full details to ${stateDir}/subagents/${subagentId}/findings.md, create output/ with:
      - README.md (setup + step-by-step reproduction)
      - setup.sh (environment setup)
      - exploit.ts (TypeScript PoC — mark [UNTESTED] if not run)
    Then end response with: STATUS:found
 
-   Hypothesis disproven → write evidence to ${stateDir}/research/${trackId}/findings.md, end with: STATUS:disproven
+   Hypothesis disproven → write evidence to ${stateDir}/subagents/${subagentId}/findings.md, end with: STATUS:disproven
 
-   Blocked → write blocker to ${stateDir}/research/${trackId}/progress.md, end with: STATUS:blocked:<reason>
+   Blocked → write blocker to ${stateDir}/subagents/${subagentId}/progress.md, end with: STATUS:blocked:<reason>
 
-Never end a turn without appending to ${stateDir}/research/${trackId}/progress.md.`;
+Never end a turn without appending to ${stateDir}/subagents/${subagentId}/progress.md.`;
 
 export interface ResearcherOpts {
   /** Override the inter-iteration delay in ms (default 2000). Useful in tests. */
@@ -60,7 +60,7 @@ export interface ResearcherOpts {
 
 export async function runResearcher(
   sessionId: string,
-  trackId: string,
+  subagentId: string,
   brief: Brief,
   boxer: BoxerClient | null,
   modelConfig: RunModelConfig,
@@ -69,40 +69,40 @@ export async function runResearcher(
   const paths = sessionPaths(sessionId);
 
   emitSessionEvent(sessionId, {
-    scope: "track",
+    scope: "subagent",
     kind: "stage_changed",
     severity: "info",
-    trackId,
-    title: `Track ${trackId} starting`,
-    detail: "Preparing workspace and reading track state",
-    stage: "Preparing Track",
+    subagentId,
+    title: `Subagent ${subagentId} starting`,
+    detail: "Preparing workspace and reading subagent state",
+    stage: "Preparing Subagent",
   });
-  // Pre-create a Boxer workspace for this track so the agent has a persistent filesystem.
+  // Pre-create a Boxer workspace for this subagent so the agent has a persistent filesystem.
   // Skipped when sandbox is disabled — commands run on the local machine instead.
   let workspaceId: string | undefined;
   if (modelConfig.sandbox && boxer) {
     try {
-      const ws = await boxer.createWorkspace(`track-${trackId}`, "ubuntu:22.04");
+      const ws = await boxer.createWorkspace(`subagent-${subagentId}`, "ubuntu:22.04");
       workspaceId = ws.workspaceId;
-      const state = await readTrackState(sessionId, trackId);
-      if (state) await writeTrackState(sessionId, { ...state, workspaceId });
-      await updateTrackInDb(trackId, { workspaceId });
+      const state = await readSubagentState(sessionId, subagentId);
+      if (state) await writeSubagentState(sessionId, { ...state, workspaceId });
+      await updateSubagentInDb(subagentId, { workspaceId });
       emitSessionEvent(sessionId, {
-        scope: "track",
+        scope: "subagent",
         kind: "stage_changed",
         severity: "info",
-        trackId,
+        subagentId,
         title: "Workspace ready",
         detail: workspaceId,
         stage: "Reading Hypothesis",
       });
     } catch {
-      console.warn(`[researcher:${trackId}] Boxer workspace creation failed — continuing without`);
+      console.warn(`[researcher:${subagentId}] Boxer workspace creation failed — continuing without`);
       emitSessionEvent(sessionId, {
-        scope: "track",
+        scope: "subagent",
         kind: "error",
         severity: "warning",
-        trackId,
+        subagentId,
         title: "Workspace creation failed",
         detail: "Continuing without persistent Boxer workspace",
         stage: "Reading Hypothesis",
@@ -114,43 +114,43 @@ export async function runResearcher(
 
   await runRalphLoop(
     async (abortController): Promise<LoopIteration> => {
-      const state = await readTrackState(sessionId, trackId);
-      if (!state) throw new Error(`Track ${trackId} has no state`);
+      const state = await readSubagentState(sessionId, subagentId);
+      if (!state) throw new Error(`Subagent ${subagentId} has no state`);
       if (state.status === "found" || state.status === "disproven" || state.status === "blocked") {
         return { done: true, reason: state.status };
       }
 
       emitSessionEvent(sessionId, {
-        scope: "track",
+        scope: "subagent",
         kind: "stage_changed",
         severity: "info",
-        trackId,
+        subagentId,
         title: "Reading hypothesis and prior progress",
         detail: state.hypothesis,
         stage: "Reading Hypothesis",
       });
 
-      const hypothesis = await readFile(paths.hypothesisMd(trackId), "utf-8");
-      const progress = await readProgress(sessionId, trackId);
-      const findings = existsSync(paths.findingsMd(trackId))
-        ? await readFile(paths.findingsMd(trackId), "utf-8")
+      const hypothesis = await readFile(paths.hypothesisMd(subagentId), "utf-8");
+      const progress = await readProgress(sessionId, subagentId);
+      const findings = existsSync(paths.findingsMd(subagentId))
+        ? await readFile(paths.findingsMd(subagentId), "utf-8")
         : "";
 
       emitSessionEvent(sessionId, {
-        scope: "track",
+        scope: "subagent",
         kind: "stage_changed",
         severity: "info",
-        trackId,
+        subagentId,
         title: "Planning next investigation step",
         detail: hypothesis.split("\n")[0] ?? state.hypothesis,
         stage: "Planning Next Step",
       });
       const result = await runAgent({
         modelConfig,
-        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir(), trackId, modelConfig.sandbox),
+        systemPrompt: SYSTEM_PROMPT_TEMPLATE(paths.stateDir(), subagentId, modelConfig.sandbox),
         prompt: buildPrompt({
           sessionId,
-          trackId,
+          subagentId,
           brief,
           hypothesis,
           progress,
@@ -159,7 +159,7 @@ export async function runResearcher(
         }),
         cwd: process.cwd(),
         sessionId,
-        trackId,
+        subagentId,
         iteration: currentIteration,
         allowedTools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"],
         sandbox: modelConfig.sandbox,
@@ -171,15 +171,15 @@ export async function runResearcher(
       const response = result.result;
 
       if (response.includes("STATUS:found")) {
-        await updateTrackStatus(sessionId, trackId, "found");
-        await updateTrackInDb(trackId, { status: "found" });
-        await appendProgress(sessionId, trackId, "[runner] Status → found");
+        await updateSubagentStatus(sessionId, subagentId, "found");
+        await updateSubagentInDb(subagentId, { status: "found" });
+        await appendProgress(sessionId, subagentId, "[runner] Status → found");
         emitSessionEvent(sessionId, {
-          scope: "track",
-          kind: "track_status_changed",
+          scope: "subagent",
+          kind: "subagent_status_changed",
           severity: "success",
-          trackId,
-          title: "Track concluded with a finding",
+          subagentId,
+          title: "Subagent concluded with a finding",
           detail: "Vulnerability evidence captured",
           stage: "Done",
           status: "found",
@@ -187,15 +187,15 @@ export async function runResearcher(
         return { done: true, reason: "found" };
       }
       if (response.includes("STATUS:disproven")) {
-        await updateTrackStatus(sessionId, trackId, "disproven");
-        await updateTrackInDb(trackId, { status: "disproven" });
-        await appendProgress(sessionId, trackId, "[runner] Status → disproven");
+        await updateSubagentStatus(sessionId, subagentId, "disproven");
+        await updateSubagentInDb(subagentId, { status: "disproven" });
+        await appendProgress(sessionId, subagentId, "[runner] Status → disproven");
         emitSessionEvent(sessionId, {
-          scope: "track",
-          kind: "track_status_changed",
+          scope: "subagent",
+          kind: "subagent_status_changed",
           severity: "info",
-          trackId,
-          title: "Track disproven",
+          subagentId,
+          title: "Subagent disproven",
           detail: "Hypothesis did not hold under investigation",
           stage: "Done",
           status: "disproven",
@@ -204,58 +204,57 @@ export async function runResearcher(
       }
       const blocked = response.match(/STATUS:blocked:(.+)/);
       if (blocked) {
-        await updateTrackStatus(sessionId, trackId, "blocked");
-        await updateTrackInDb(trackId, {
+        await updateSubagentStatus(sessionId, subagentId, "blocked");
+        await updateSubagentInDb(subagentId, {
           status: "blocked",
           blockedReason: blocked[1]?.trim() ?? "blocked",
         });
-        await appendProgress(sessionId, trackId, `[runner] Status → blocked: ${blocked[1] ?? ""}`);
+        await appendProgress(sessionId, subagentId, `[runner] Status → blocked: ${blocked[1] ?? ""}`);
         emitSessionEvent(sessionId, {
-          scope: "track",
-          kind: "track_status_changed",
+          scope: "subagent",
+          kind: "subagent_status_changed",
           severity: "warning",
-          trackId,
-          title: "Track blocked",
+          subagentId,
+          title: "Subagent blocked",
           detail: blocked[1]?.trim() || "Blocked by runtime condition",
           stage: "Blocked",
           status: "blocked",
         });
-        return { done: true, reason: `blocked: ${blocked[1] ?? ""}` };
+        return { done: true, reason: "blocked" };
       }
 
       emitSessionEvent(sessionId, {
-        scope: "track",
-        kind: "waiting",
+        scope: "subagent",
+        kind: "retrying",
         severity: "info",
-        trackId,
-        title: "Waiting for next researcher iteration",
-        detail: "The track will continue automatically",
-        stage: "Investigating",
+        subagentId,
+        title: "Subagent continues",
+        detail: "The subagent will continue automatically",
+        stage: "Research In Progress",
+      });
+
+      await upsertSubagent({
+        id: subagentId,
+        sessionId,
+        hypothesis: state.hypothesis,
+        status: state.status,
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
       });
       return { done: false };
     },
     {
       sessionId,
-      trackId,
-      label: `Researcher:${trackId}`,
-      maxIterations: 50,
-      delayMs: opts.delayMs ?? 2000,
-      onIteration: (i) => { currentIteration = i; },
+      subagentId,
+      label: `Subagent:${subagentId}`,
+      ...(opts.delayMs !== undefined ? { delayMs: opts.delayMs } : {}),
+      scope: "subagent",
     },
   );
-
-  if (workspaceId && boxer) {
-    try {
-      await boxer.deleteWorkspace(workspaceId);
-    } catch {
-      /* non-critical */
-    }
-  }
 }
 
 interface PromptArgs {
   sessionId: string;
-  trackId: string;
+  subagentId: string;
   brief: Brief;
   hypothesis: string;
   progress: string;
@@ -264,26 +263,22 @@ interface PromptArgs {
 }
 
 function buildPrompt(args: PromptArgs): string {
-  return `## Your Research Track
-Track ID: ${args.trackId}
-${args.workspaceId ? `Boxer Workspace ID: ${args.workspaceId} — include in Boxer API calls as "workspaceId" field for persistent filesystem` : "No sandbox — Bash commands run directly on the local machine."}
+  return `## Your Research Subagent
+Subagent ID: ${args.subagentId}
 
-## Target Brief
-- Target: ${args.brief.target}
-- Scope: ${args.brief.scope}
-- Goal: ${args.brief.goal}
-${args.brief.code ? `- Code: ${args.brief.code.join(", ")}` : ""}
-${args.brief.links ? `- Links: ${args.brief.links.join(", ")}` : ""}
+Brief:
+${JSON.stringify(args.brief, null, 2)}
 
-## Your Hypothesis
+Hypothesis:
 ${args.hypothesis}
 
-## Progress So Far
-${args.progress || "(none — first iteration)"}
+Progress log:
+${args.progress || "(none)"}
 
-## Findings So Far
-${args.findings || "(none yet)"}
+Current findings:
+${args.findings || "(none)"}
 
----
-Continue the investigation. Read progress.md, pick up where you left off, and append to it after every action.`;
+${args.workspaceId ? `Workspace ID: ${args.workspaceId}` : ""}
+
+Continue investigating. Use the allowed tools as needed.`;
 }

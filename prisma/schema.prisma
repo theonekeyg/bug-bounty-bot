@@ -14,16 +14,16 @@ model Session {
   briefContent String
   model        String
   boxerUrl     String
-  maxTracks    Int      @default(6)
+  maxSubagents    Int      @default(6)
   status       String   @default("running") // running | completed | failed | crashed
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   completedAt  DateTime?
-  tracks       Track[]
+  subagents       Subagent[]
   events       EventRecord[]
 }
 
-model Track {
+model Subagent {
   id            String   @id
   sessionId     String
   session       Session  @relation(fields: [sessionId], references: [id])
@@ -39,7 +39,7 @@ model EventRecord {
   id        String   @id @default(cuid())
   sessionId String
   session   Session  @relation(fields: [sessionId], references: [id])
-  trackId   String?
+  subagentId   String?
   kind      String
   severity  String
   title     String
@@ -52,7 +52,7 @@ model EventRecord {
 model AgentTurn {
   id               String     @id @default(cuid())
   sessionId        String
-  trackId          String
+  subagentId          String
   iteration        Int
   turnIndex        Int
   thinkingText     String     @default("")
@@ -65,7 +65,7 @@ model AgentTurn {
   completedAt      DateTime?
   toolCalls        ToolCall[]
 
-  @@index([sessionId, trackId])
+  @@index([sessionId, subagentId])
 }
 
 model ToolCall {

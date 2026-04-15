@@ -23,7 +23,7 @@ import {
   type AgentTurnEvent,
   type AgentToolProgressEvent,
 } from "../src/ipc/bus.ts";
-import { readAllTrackStates, sessionPaths, writeStopSignal, clearStopSignal } from "../src/loop/state.ts";
+import { readAllSubagentStates, sessionPaths, writeStopSignal, clearStopSignal } from "../src/loop/state.ts";
 import type { PendingInstall } from "../src/types/state.ts";
 import { PendingInstallSchema } from "../src/types/state.ts";
 import {
@@ -38,7 +38,7 @@ import {
   listSessions,
   getSession,
   updateSessionStatus,
-  updateSessionMaxTracks,
+  updateSessionMaxSubagents,
   getAgentActivity,
 } from "../src/db/index.ts";
 
@@ -321,9 +321,9 @@ ipcMain.handle("get-session-events", async (_event, sessionId: string) => {
 });
 
 /** Start a new research session from a brief. */
-ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string, maxTracks: number, sandbox = false) => {
+ipcMain.handle("start-research", async (_event, briefPath: string, boxerUrl: string, model: string, maxSubagents: number, sandbox = false) => {
   activeBoxer = sandbox ? new BoxerClient(boxerUrl) : null;
-  const modelConfig = RunModelConfigSchema.parse({ model, maxTracks: maxTracks ?? 6, sandbox });
+  const modelConfig = RunModelConfigSchema.parse({ model, maxSubagents: maxSubagents ?? 6, sandbox });
 
   // runOrchestrator creates the session in DB and returns after session is complete.
   // We don't await here — fire and forget so the IPC call returns immediately.
@@ -379,7 +379,7 @@ ipcMain.handle("resume-research", async (_event, sessionId: string) => {
   const sandbox = !!session.boxerUrl;
   activeBoxer = sandbox ? new BoxerClient(session.boxerUrl) : null;
   activeSessionId = sessionId;
-  const modelConfig = RunModelConfigSchema.parse({ model: session.model, maxTracks: session.maxTracks, sandbox });
+  const modelConfig = RunModelConfigSchema.parse({ model: session.model, maxSubagents: session.maxSubagents, sandbox });
 
   runOrchestrator(session.briefPath, activeBoxer, modelConfig, { sessionId })
     .catch((err: unknown) => {
@@ -396,10 +396,10 @@ ipcMain.handle("set-active-session", async (_event, sessionId: string) => {
   return { ok: true };
 });
 
-/** Update the max parallel tracks for an existing session. */
-ipcMain.handle("set-max-tracks", async (_event, sessionId: string, maxTracks: number) => {
-  const parsed = RunModelConfigSchema.shape.maxTracks.parse(maxTracks);
-  await updateSessionMaxTracks(sessionId, parsed);
+/** Update the max parallel subagents for an existing session. */
+ipcMain.handle("set-max-subagents", async (_event, sessionId: string, maxSubagents: number) => {
+  const parsed = RunModelConfigSchema.shape.maxSubagents.parse(maxSubagents);
+  await updateSessionMaxSubagents(sessionId, parsed);
   return { ok: true };
 });
 
@@ -480,7 +480,7 @@ ipcMain.handle("pick-file", async (_event, filters?: Electron.FileFilter[]) => {
 ipcMain.handle("get-progress", async (_event, sessionId?: string) => {
   const sid = sessionId ?? activeSessionId;
   if (!sid) return [];
-  return readAllTrackStates(sid);
+  return readAllSubagentStates(sid);
 });
 
 /** Get the state directory path for a session (so renderer can construct file paths). */
@@ -492,15 +492,15 @@ ipcMain.handle("get-session-state-dir", async (_event, sessionId: string) => {
 ipcMain.handle("get-pending-installs", async (_event, sessionId?: string) => {
   const sid = sessionId ?? activeSessionId;
   if (!sid) return [];
-  const researchDir = join(sessionPaths(sid).stateDir(), "research");
-  if (!existsSync(researchDir)) return [];
+  const subagentDir = join(sessionPaths(sid).stateDir(), "subagents");
+  if (!existsSync(subagentDir)) return [];
 
-  const dirs = await readdir(researchDir, { withFileTypes: true });
+  const dirs = await readdir(subagentDir, { withFileTypes: true });
   const pending: PendingInstall[] = [];
 
   for (const d of dirs) {
     if (!d.isDirectory()) continue;
-    const installPath = join(researchDir, d.name, "pending_install.json");
+    const installPath = join(subagentDir, d.name, "pending_install.json");
     if (!existsSync(installPath)) continue;
     const raw = await readFile(installPath, "utf-8");
     pending.push(PendingInstallSchema.parse(JSON.parse(raw)));
@@ -509,18 +509,18 @@ ipcMain.handle("get-pending-installs", async (_event, sessionId?: string) => {
   return pending;
 });
 
-/** Get full agent activity (turns + tool calls) for a track. */
-ipcMain.handle("get-agent-activity", async (_event, sessionId: string, trackId: string) => {
-  return getAgentActivity(sessionId, trackId);
+/** Get full agent activity (turns + tool calls) for a subagent. */
+ipcMain.handle("get-agent-activity", async (_event, sessionId: string, subagentId: string) => {
+  return getAgentActivity(sessionId, subagentId);
 });
 
-/** List files created by a track in its state dir and the session output dir. */
-ipcMain.handle("list-track-files", async (_event, sessionId: string, trackId: string) => {
+/** List files created by a subagent in its state dir and the session output dir. */
+ipcMain.handle("list-subagent-files", async (_event, sessionId: string, subagentId: string) => {
   const paths = sessionPaths(sessionId);
   const stateBase = paths.stateDir();
   const outputBase = paths.outputDir();
-  type TrackFileInfo = { path: string; relativePath: string; size: number; mtime: string };
-  const results: TrackFileInfo[] = [];
+  type SubagentFileInfo = { path: string; relativePath: string; size: number; mtime: string };
+  const results: SubagentFileInfo[] = [];
 
   async function scanDir(dir: string, relBase: string): Promise<void> {
     if (!existsSync(dir)) return;
@@ -537,7 +537,7 @@ ipcMain.handle("list-track-files", async (_event, sessionId: string, trackId: st
     }
   }
 
-  await scanDir(join(stateBase, "research", trackId), join("state", "research", trackId));
+  await scanDir(join(stateBase, "subagents", subagentId), join("state", "subagents", subagentId));
   await scanDir(outputBase, "output");
 
   return results.sort((a, b) => new Date(b.mtime).getTime() - new Date(a.mtime).getTime());
@@ -546,7 +546,7 @@ ipcMain.handle("list-track-files", async (_event, sessionId: string, trackId: st
 /** Approve or reject a pending install. */
 ipcMain.handle(
   "resolve-install",
-  async (_event, trackId: string, approved: boolean, install: PendingInstall) => {
+  async (_event, subagentId: string, approved: boolean, install: PendingInstall) => {
     if (!activeBoxer) return { error: "No active session" };
 
     if (approved) {

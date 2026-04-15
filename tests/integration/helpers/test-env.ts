@@ -15,8 +15,8 @@ import { tmpdir } from "os";
 import { randomUUID } from "crypto";
 import { initDb, closeDb } from "../../../src/db/client.js";
 import { setCredentialResolver, resetCredentialResolver } from "../../../src/credentials/runtime.js";
-import { initStateDir, sessionPaths, writeTrackState } from "../../../src/loop/state.js";
-import { createSession, upsertTrack } from "../../../src/db/sessions.js";
+import { initStateDir, sessionPaths, writeSubagentState } from "../../../src/loop/state.js";
+import { createSession, upsertSubagent } from "../../../src/db/sessions.js";
 import { ModelMock } from "./model-mock.js";
 import { BoxerMock } from "./boxer-mock.js";
 import type { Brief } from "../../../src/types/index.js";
@@ -34,7 +34,7 @@ export interface TestEnv {
   /** A simple valid Brief for use in tests. */
   brief: Brief;
   /** Helpers to prep researcher state before calling runResearcher(). */
-  setupTrack: (trackId: string, hypothesis: string) => Promise<void>;
+  setupSubagent: (subagentId: string, hypothesis: string) => Promise<void>;
   /** Absolute DB file path (useful for direct Prisma queries in assertions). */
   dbPath: string;
   cleanup: () => Promise<void>;
@@ -53,7 +53,7 @@ export async function setupTestEnv(): Promise<TestEnv> {
     briefContent: "TARGET: test-app\nSCOPE: all\nGOAL: find vulns",
     model: "qwen/qwen-plus",
     boxerUrl: "",
-    maxTracks: 3,
+    maxSubagents: 3,
   });
 
   // State dirs (relative to project cwd, cleaned up on teardown)
@@ -78,7 +78,7 @@ export async function setupTestEnv(): Promise<TestEnv> {
 
   const modelConfig: RunModelConfig = {
     model: "qwen/qwen-plus",
-    maxTracks: 3,
+    maxSubagents: 3,
     sandbox: false,
   };
 
@@ -88,21 +88,21 @@ export async function setupTestEnv(): Promise<TestEnv> {
     goal: "find auth bypass",
   };
 
-  async function setupTrack(trackId: string, hypothesis: string): Promise<void> {
+  async function setupSubagent(subagentId: string, hypothesis: string): Promise<void> {
     const paths = sessionPaths(sessionId);
-    const trackDir = paths.trackDir(trackId);
-    await mkdir(trackDir, { recursive: true });
-    await writeFile(paths.hypothesisMd(trackId), `# Hypothesis\n${hypothesis}`, "utf-8");
+    const subagentDir = paths.subagentDir(subagentId);
+    await mkdir(subagentDir, { recursive: true });
+    await writeFile(paths.hypothesisMd(subagentId), `# Hypothesis\n${hypothesis}`, "utf-8");
     const now = new Date().toISOString();
-    await writeTrackState(sessionId, {
-      trackId,
+    await writeSubagentState(sessionId, {
+      subagentId,
       status: "running",
       hypothesis,
       startedAt: now,
       updatedAt: now,
     });
-    // Register in DB so updateTrackInDb calls (status updates) don't fail with P2025
-    await upsertTrack({ id: trackId, sessionId, hypothesis });
+    // Register in DB so updateSubagentInDb calls (status updates) don't fail with P2025
+    await upsertSubagent({ id: subagentId, sessionId, hypothesis });
   }
 
   async function cleanup(): Promise<void> {
@@ -117,5 +117,5 @@ export async function setupTestEnv(): Promise<TestEnv> {
     await rm(paths.outputDir(), { recursive: true, force: true });
   }
 
-  return { sessionId, modelMock, boxer, modelConfig, brief, setupTrack, dbPath, cleanup };
+  return { sessionId, modelMock, boxer, modelConfig, brief, setupSubagent, dbPath, cleanup };
 }
