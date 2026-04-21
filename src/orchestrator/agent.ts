@@ -116,9 +116,9 @@ export async function runOrchestrator(
   const existingStates = await readAllSubagentStates(sessionId);
   if (resuming && existingStates.length > 0) {
     subagentsCreated = true;
-    const nonTerminal = existingStates.filter(
-      (s) => s.status !== "found" && s.status !== "disproven" && s.status !== "blocked",
-    );
+    const nonTerminal = existingStates
+      .filter((s) => s.status !== "found" && s.status !== "disproven" && s.status !== "blocked")
+      .slice(0, modelConfig.maxSubagents);
     emitSessionEvent(sessionId, {
       scope: "session",
       kind: "stage_changed",
@@ -203,7 +203,15 @@ export async function runOrchestrator(
 
       if (result.result.includes("ORCHESTRATION_DONE")) {
         subagentsCreated = true;
-        const states = await readAllSubagentStates(sessionId);
+        const allStates = await readAllSubagentStates(sessionId);
+        const states = allStates.slice(0, modelConfig.maxSubagents);
+        if (allStates.length > modelConfig.maxSubagents) {
+          await appendProgress(
+            sessionId,
+            "orchestrator",
+            `[orchestrator] Model created ${allStates.length} subagents but maxSubagents=${modelConfig.maxSubagents} — capping to ${states.length}`,
+          );
+        }
         emitSessionEvent(sessionId, {
           scope: "session",
           kind: "stage_changed",

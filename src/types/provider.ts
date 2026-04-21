@@ -31,6 +31,8 @@ export const PROVIDER_MODELS = {
   // OpenRouter — all models use OpenAI-compatible chat completions at openrouter.ai/api/v1
   // Verify / update IDs at: https://openrouter.ai/models
   openrouter: [
+    { value: "qwen/qwen3-coder",                           label: "Qwen3 Coder Next",     description: "Qwen3 Coder 480B — flagship code model with thinking" },
+    { value: "qwen/qwen3-coder-flash",                     label: "Qwen3 Coder Flash",    description: "Qwen3 Coder Flash — fast & efficient coding model" },
     { value: "qwen/qwen-plus",                             label: "Qwen3 Plus",           description: "Alibaba Qwen Plus — strong reasoning & code" },
     { value: "thudm/glm-4-plus",                           label: "GLM-4 Plus",           description: "Zhipu AI GLM-4 Plus — multilingual" },
     { value: "nvidia/nemotron-3-super-120b-a12b",          label: "NVIDIA Nemotron 3 Super", description: "NVIDIA Nemotron 3 Super 120B" },
@@ -96,6 +98,8 @@ export const SUPPORTED_MODELS = [
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
   // OpenRouter
+  "qwen/qwen3-coder",
+  "qwen/qwen3-coder-flash",
   "qwen/qwen-plus",
   "thudm/glm-4-plus",
   "nvidia/nemotron-3-super-120b-a12b",
@@ -148,6 +152,8 @@ export type ThinkingMode =
 export function getModelThinking(model: SupportedModel): ThinkingMode {
   if (model === "claude-opus-4-6")   return { type: "adaptive" };
   if (model === "claude-sonnet-4-6") return { type: "enabled", budgetTokens: 8000 };
-  if (model === "qwen/qwen-plus")    return { type: "openrouter" };
+  if (model === "qwen/qwen3-coder")       return { type: "openrouter" };
+  if (model === "qwen/qwen3-coder-flash") return { type: "openrouter" };
+  if (model === "qwen/qwen-plus")         return { type: "openrouter" };
   return null;
 }
